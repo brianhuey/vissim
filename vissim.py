@@ -57,12 +57,12 @@ class Inputs:
             current_demand = line[4]
             current_comp = line[6]
             self.data['name'] = self.current_input_name
-            self.data['number'] = self.current_input_number
-            self.data['demand'] = current_demand
+            self.data['input'] = self.current_input_number
+            self.data['Q'] = current_demand
             self.data['composition'] = current_comp
         elif line[0] == 'TIME':
-            current_time = [line[2], line[4]]
-            self.data['time'] = current_time
+            self.data['from'] = line[2]
+            self.data['until'] = line[4]
     def import_inputs(self):
         """ Imports Input syntax into dictionary.
         """
@@ -82,6 +82,35 @@ class Inputs:
                         continue
         except IOError:
             print 'cannot open', filename
+    def output_inputs(self, inputs):
+        """ Outputs Inputs syntax to VISSIM.
+
+        Input: A single Inputs dictionary
+        Output: Inputs back into VISSIM syntax
+        """
+        vissim_out = []
+        vissim_out.append('INPUT ' + str(inputs['input']).rjust(6))
+        vissim_out.append('NAME '.rjust(10) + inputs['name'] + ' LABEL  ' + inputs['label'][0] + inputs['label'][1])
+        vissim_out.append('LINK '.rjust(10) + ' Q ' + str(inputs['Q']) + ' COMPOSITION ' + str(inputs['composition']))
+        vissim_out.append('TIME FROM '.rjust(15) + inputs['from'] + ' UNTIL ' + inputs['until'])
+        return vissim_out
+    def create_inputs(self, link, demand, composition, **kwargs):
+        if kwargs.has_key('inputs'):
+            inputs_num = kwargs['inputs']
+        else:
+            inputs_num = max(self.inputs_data.keys())+1
+        self.inputs_data[inputs_num] = {}
+        inputs = self.inputs_data[inputs_num]
+        self.inputs_data['inputs'] = inputs_num
+        self.inputs_data['Q'] = demand
+        self.inputs_data['link'] = link
+        self.inputs_data['composition'] = composition
+        # Default values
+        self.inputs_data['name'] = '""'
+        self.inputs_data['label'] = ['0.00', '0.00']
+        self.inputs_data['from'] = [0.000]
+        self.inputs_data['until'] = [3600.00]
+        assert len(self.inputs_data['from']) == len(self.inputs_data['to']) ==len(self.inputs_data['Q']) == len(self.inputs_data['composition'])
 class Links:
     """ Handles Links section of .INP file.
     """
@@ -714,7 +743,7 @@ class Routing:
         self.count = None
         self.data = None
         self.import_route()
-    def routing(self, line, links=False):
+    def routing(self,line,links=True,link_key=False):
         """ Process the Route Decision section of the INP file
         """
         if line[0] == "ROUTING_DECISION":
@@ -723,17 +752,21 @@ class Routing:
             self.current_label = [line[5], line[6]]
             self.over = False
         elif line[0] == "LINK":
-            # Dictionary key is the link number
             self.current_dec = line[1]
             self.current_link_location = line[3]
-            if self.routing_data.has_key(self.current_dec):
-                self.count = len(self.routing_data[self.current_dec])
-                self.routing_data[self.current_dec].append({})
-                self.data = self.routing_data[self.current_dec][self.count]
+            # Dictionary key is either link number or routing decision number
+            if link_key == True:
+                dict_key = self.current_dec
+            else:
+                dict_key = self.current_number
+            if self.routing_data.has_key(dict_key):
+                self.count = len(self.routing_data[dict_key])
+                self.routing_data[dict_key].append({})
+                self.data = self.routing_data[dict_key][self.count]
             else:
                 self.count = 0
-                self.routing_data[self.current_dec] = [{}]
-                self.data = self.routing_data[self.current_dec][self.count]
+                self.routing_data[dict_key] = [{}]
+                self.data = self.routing_data[dict_key][self.count]
             self.data['link'] = self.current_dec
             self.data['route'] = {}
             self.data['name'] = self.current_name
@@ -773,7 +806,7 @@ class Routing:
             self.data['route'][self.current_route]['over'] = line[1:]
         elif self.over is True and links is True:
             self.data['route'][self.current_route]['over'] += line
-    def import_route(self):
+    def import_route(self,link_key=False):
         """ Imports Route Decision syntax into dictionary.
         """
         filename = self.filename
@@ -787,7 +820,7 @@ class Routing:
                     elif line[0] == '--':
                         section = line[1]
                     elif section == "Routing":
-                        self.routing(line, True)
+                        self.routing(line)
                     else:
                         continue
                 return self.routing_data
@@ -855,9 +888,9 @@ class Routing:
         for key in routing_data:
             if len(routing_data[key]) > 1:
                 for dic in routing_data[key]:
-                    print_data += output_routing(dic)
+                    print_data += self.output_routing(dic)
             else:
-                print_data += output_routing(routing_data[key][0])
+                print_data += self.output_routing(routing_data[key][0])
         return print_data
 class Node:
     """ Handles Node section of .INP file.
