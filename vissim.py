@@ -23,6 +23,28 @@ def line_process(line):
         return final_line
     else:
         return line.strip().split()
+def update_section(org_file, new_file,name,print_data):
+    """ Update a section of a VISSIM .INP file.
+        Inputs: filename, object type(Inputs, Routing Decision, etc.) and list of strings with VISSIM syntax.
+        Outputs: new file
+    """
+    search = '-- ' + name + ': --'
+    f = open(org_file, 'r')
+    lines = f.readlines()
+    f.close()
+    f = open(new_file, 'w')
+    start_delete = False
+    for line in lines:
+        if start_delete is True and line[:3] == '-- ':
+            start_delete = False
+            f.write(line)
+        if line[:len(search)] == search:
+            start_delete = True
+            for new_line in print_data:
+                f.write(str(new_line) + '\n')
+        if start_delete is False:
+            f.write(line)
+    f.close()
 class Inputs:
     """ Handles Inputs section of .INP file.
     """
@@ -104,16 +126,14 @@ class Inputs:
             Output: List of all inputs in VISSIM syntax
         """
         inputs_data = self.inputs_data
-        print_data = []
-        open(filename, 'w').write('-- Inputs: --\n------------\n')
+        print_data = ['-- Inputs: --\n-------------\n']
         for key in inputs_data:
             if len(inputs_data[key]) > 1:
                 for dic in inputs_data[key]:
                     print_data += self.output_inputs(dic)
             else:
                 print_data += self.output_inputs(inputs_data[key][0])
-        for line in print_data:
-            open(filename, 'a').write(str(line) + '\n')
+        update_section(self.filename,filename,'Inputs',print_data)
     def create_inputs(self, link, demand, composition, **kwargs):
         if kwargs.has_key('inputs'):
             inputs_num = kwargs['inputs']
@@ -243,12 +263,10 @@ class Links:
             Output: List of all links in VISSIM syntax
         """
         links_data = self.links_data
-        print_data = []
-        open(filename, 'w').write('-- Links: --\n------------\n')
+        print_data = ['-- Links: --\n------------\n']
         for key, value in links_data.items():
             print_data = self.output_links(value)
-            for line in print_data:
-                open(filename, 'a').write(str(line) + '\n')
+        update_section(self.filename,filename,'Links',print_data)
     def create_link(self, coord_from, coord_to, **kwargs):
         if kwargs.has_key('link'):
             link_num = kwargs['link']
@@ -411,12 +429,10 @@ class Connector:
             Output: List of all connector lots in VISSIM syntax
         """
         connector_data = self.connector_data
-        print_data = []
-        open(filename, 'w').write('-- Connectors: --\n-----------------\n')
+        print_data = ['-- Connectors: --\n-----------------\n']
         for key, value in connector_data.items():
             print_data = self.output_connector(value)
-            for line in print_data:
-                open(filename, 'a').write(str(line) + '\n')
+        update_section(self.filename,filename,'Connectors',print_data)
     def create_connector(self, linksobj, from_link, to_link, **kwargs):
         if kwargs.has_key('num'):
             connector_num = int(kwargs['num'])
@@ -565,12 +581,10 @@ class Parking:
             Output: List of all parking lots in VISSIM syntax
         """
         parking_data = self.parking_data
-        print_data = []
-        open(filename, 'w').write('-- Parking Lots: --\n-------------------\n')
+        print_data = ['-- Parking Lots: --\n-------------------\n']
         for key, value in parking_data.items():
             print_data = self.output_parking(value)
-            for line in print_data:
-                open(filename, 'a').write(str(line) + '\n')
+        update_section(self.filename,filename,'Parking Lots',print_data)
     def create_parking(self, linksobj, link, length, at, lane, **kwargs):
         if kwargs.has_key('num'):
             parking_num = int(kwargs['num'])
@@ -709,12 +723,10 @@ class Transit:
             Output: List of all transit lots in VISSIM syntax
         """
         transit_data = self.transit_data
-        print_data = []
-        open(filename, 'w').write('-- Public Transport: --\n-----------------\n')
+        print_data = ['-- Public Transport: --\n-----------------\n']
         for key, value in transit_data.items():
             print_data = self.output_transit(value)
-            for line in print_data:
-                open(filename, 'a').write(str(line) + '\n')
+        update_section(self.filename,filename,'Public Transport',print_data)
     def create_transit(self, link, dest_link, at, desired_speed, vehicle_type, **kwargs):
         if kwargs.has_key('num'):
             transit_num = int(kwargs['num'])
@@ -904,16 +916,14 @@ class Routing:
             Output: List of all routes in VISSIM syntax
         """
         routing_data = self.routing_data
-        print_data = []
-        open(filename, 'w').write('-- Routing Decisions: --\n-------------------\n')
+        print_data = ['-- Routing Decisions: --\n-------------------\n']
         for key in routing_data:
             if len(routing_data[key]) > 1:
                 for dic in routing_data[key]:
                     print_data += self.output_routing(dic)
             else:
                 print_data += self.output_routing(routing_data[key][0])
-        for line in print_data:
-            open(filename, 'a').write(str(line) + '\n')
+        update_section(self.filename,filename,'Routing Decisions',print_data)
 class Node:
     """ Handles Node section of .INP file.
     """
@@ -990,12 +1000,10 @@ class Node:
             Output: List of all node lots in VISSIM syntax
         """
         node_data = self.node_data
-        print_data = []
-        open(filename, 'w').write('-- Nodes: --\n------------\n')
+        print_data = ['-- Nodes: --\n------------\n']
         for key, value in node_data.items():
             print_data = self.output_node(value)
-            for line in print_data:
-                open(filename, 'a').write(str(line) + '\n')
+        update_section(self.filename,filename,'Nodes',print_data)
     def create_node_area(self, area, **kwargs):
         if kwargs.has_key('num'):
             node_num = int(kwargs['num'])
@@ -1033,44 +1041,3 @@ class Node:
         # User defined changes to the default values
         for name, value in kwargs.items():
             node[name] = value
-def get_section(datafile, sectionname):
-    """ Returns the starting and ending line number for the desired section.
-
-        Input: filename (INP), section name (routing, input)
-        Output: starting line number, ending line number
-    """
-    foundsection = False
-    sectionname = '-- ' + str(sectionname) + ': --'
-    print sectionname
-    endsection = ': --'
-    for num, line in enumerate(datafile, 1):
-        if line.strip() == sectionname:
-            sectionnum = num + 1
-            foundsection = True
-        elif foundsection is True and endsection in line:
-            endsectionnum = num - 2
-            return sectionnum, endsectionnum
-        else:
-            continue
-"""
-def replace_section(datafile, sectionobj):
-    """
-""" Takes an INP file and replaces a section with a new section.
-
-        Input: filename (INP), section object
-        Output: new filename
-    """
-"""start, end = get_section(filename, sectionobj.name)
-    del data[start:end+1]
-    for i in export_routing(sectionobj):
-        data.insert(start, i + '\n')
-        start += 1
-    newfilename = filename + '.new'
-    open(newfilename, 'w+').writelines(data)
-def export_data(filename, **objects):"""
-""" find a file to edit, pass any number of sections to replace
-    """
-"""    data = open(filename).readlines()
-    for key in objects:
-"""
-
