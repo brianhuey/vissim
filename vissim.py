@@ -33,6 +33,7 @@ class Inputs:
         self.current_input = None
         self.current_input_number = None
         self.current_input_name = None
+        self.current_label = None
         self.count = 0
         self.data = None
         self.import_inputs()
@@ -44,6 +45,7 @@ class Inputs:
             self.current_input_number = line[1]
         elif line[0] == 'NAME':
             self.current_input_name = line[1]
+            self.current_label = [line[3], line[4]]
         elif line[0] == 'LINK':
             self.current_input = line[1]
             if self.inputs_data.has_key(self.current_input):
@@ -58,6 +60,7 @@ class Inputs:
             current_comp = line[6]
             self.data['name'] = self.current_input_name
             self.data['input'] = self.current_input_number
+            self.data['label'] = self.current_label
             self.data['Q'] = current_demand
             self.data['composition'] = current_comp
         elif line[0] == 'TIME':
@@ -94,6 +97,23 @@ class Inputs:
         vissim_out.append('LINK '.rjust(10) + ' Q ' + str(inputs['Q']) + ' COMPOSITION ' + str(inputs['composition']))
         vissim_out.append('TIME FROM '.rjust(15) + inputs['from'] + ' UNTIL ' + inputs['until'])
         return vissim_out
+    def export_inputs(self, filename):
+        """ Prepare for export all inputs in a given inputs object
+
+            Input: Inputs object
+            Output: List of all inputs in VISSIM syntax
+        """
+        inputs_data = self.inputs_data
+        print_data = []
+        open(filename, 'w').write('-- Inputs: --\n------------\n')
+        for key in inputs_data:
+            if len(inputs_data[key]) > 1:
+                for dic in inputs_data[key]:
+                    print_data += self.output_inputs(dic)
+            else:
+                print_data += self.output_inputs(inputs_data[key][0])
+        for line in print_data:
+            open(filename, 'a').write(str(line) + '\n')
     def create_inputs(self, link, demand, composition, **kwargs):
         if kwargs.has_key('inputs'):
             inputs_num = kwargs['inputs']
@@ -877,21 +897,23 @@ class Routing:
                         over_str += j.rjust(6)
                         link_count += 1
         return vissim_out
-    def export_routing(self, routingobj):
+    def export_routing(self, filename):
         """ Prepare for export all routes in a given route object
 
             Input: Route object
             Output: List of all routes in VISSIM syntax
         """
-        routing_data = routingobj.routing_data
+        routing_data = self.routing_data
         print_data = []
+        open(filename, 'w').write('-- Routing Decisions: --\n-------------------\n')
         for key in routing_data:
             if len(routing_data[key]) > 1:
                 for dic in routing_data[key]:
                     print_data += self.output_routing(dic)
             else:
                 print_data += self.output_routing(routing_data[key][0])
-        return print_data
+        for line in print_data:
+            open(filename, 'a').write(str(line) + '\n')
 class Node:
     """ Handles Node section of .INP file.
     """
