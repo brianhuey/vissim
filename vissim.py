@@ -58,6 +58,7 @@ class Inputs:
         self.current_label = None
         self.count = 0
         self.data = None
+        self.exact = None
         self.import_inputs()
     def read_inputs(self, line):
         """ Process the Input section of the INP file.
@@ -78,8 +79,15 @@ class Inputs:
                 self.count = 0
                 inputs_data[self.current_input] = [{}]
                 self.data = self.inputs_data[self.current_input][self.count]
-            current_demand = line[4]
-            current_comp = line[6]
+            if line[3] == 'EXACT':
+                self.exact = True
+                i = 1
+            else:
+                i = 0
+                self.exact = False
+            current_demand = line[3+i]
+            current_comp = line[5+i]
+            self.data['link'] = self.current_input
             self.data['name'] = self.current_input_name
             self.data['input'] = self.current_input_number
             self.data['label'] = self.current_label
@@ -115,8 +123,11 @@ class Inputs:
         """
         vissim_out = []
         vissim_out.append('INPUT ' + str(inputs['input']).rjust(6))
-        vissim_out.append('NAME '.rjust(10) + inputs['name'] + ' LABEL  ' + inputs['label'][0] + inputs['label'][1])
-        vissim_out.append('LINK '.rjust(10) + ' Q ' + str(inputs['Q']) + ' COMPOSITION ' + str(inputs['composition']))
+        vissim_out.append('NAME '.rjust(10) + inputs['name'] + ' LABEL  ' + inputs['label'][0] + ' ' + inputs['label'][1])
+        if self.exact is True:
+            vissim_out.append('LINK '.rjust(10) + inputs['link'] + ' Q EXACT ' + str(int(float(inputs['Q']))) + '.000 COMPOSITION ' + str(inputs['composition']))
+        else:
+            vissim_out.append('LINK '.rjust(10) + inputs['link'] + ' Q ' + str(int(float(inputs['Q']))) + '.000 COMPOSITION ' + str(inputs['composition']))
         vissim_out.append('TIME FROM '.rjust(15) + inputs['from'] + ' UNTIL ' + inputs['until'])
         return vissim_out
     def export_inputs(self, filename):
@@ -879,8 +890,7 @@ class Routing:
         elif route.has_key('PT'):
             vissim_out.append('PT '.rjust(21) + route['PT'])
         for i in route['route']:
-            vissim_out.append('ROUTE'.rjust(11) + i.rjust(6) + ' DESTINATION LINK'              + route['route'][i]['destination link'].rjust(6) +
-                              ' AT' + route['route'][i]['at'].rjust(9))
+            vissim_out.append('ROUTE '.rjust(11) + i.rjust(6) + ' DESTINATION LINK'              + route['route'][i]['destination link'].rjust(6) + ' AT' + route['route'][i]['at'].rjust(9))
             fraction_str = ''
             for j in route['route'][i]['fraction']:
                 fraction_str += 'FRACTION '.rjust(16) + j
@@ -895,7 +905,6 @@ class Routing:
                         over_str = 'OVER '.rjust(11)
                         over_str += j.rjust(6)
                         link_count += 1
-                        continue
                     elif link_count == len(route['route'][i]['over']):
                         over_str += j.rjust(6)
                         vissim_out.append(over_str)
@@ -908,6 +917,8 @@ class Routing:
                     else:
                         over_str += j.rjust(6)
                         link_count += 1
+                    if len(route['route'][i]['over']) == 1:
+                        vissim_out.append(over_str)
         return vissim_out
     def export_routing(self, filename):
         """ Prepare for export all routes in a given route object
