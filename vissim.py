@@ -23,6 +23,25 @@ def line_process(line):
         return final_line
     else:
         return line.strip().split()
+def import_section(obj, filename):
+    """ Imports section's syntax into dictionary.
+    """
+    name = obj.name
+    try:
+        with open(filename, 'r') as data:
+            section = None
+            for row in data:
+                found = re.findall(r'(?<=\- )(.*?)(?=\: -)', row)
+                if row in ['\n', '\r\n']:
+                    continue
+                elif len(found) > 0:
+                    section = found[0]
+                elif section == name:
+                    obj.read_section(line_process(row))
+                else:
+                    continue
+    except IOError:
+        print 'cannot open', filename
 def update_section(org_file, new_file,name,print_data):
     """ Update a section of a VISSIM .INP file.
         Inputs: filename, object type(Inputs, Routing Decision, etc.) and list of strings with VISSIM syntax.
@@ -59,8 +78,8 @@ class Inputs:
         self.count = 0
         self.data = None
         self.exact = None
-        self.import_inputs()
-    def read_inputs(self, line):
+        import_section(self, filename)
+    def read_section(self, line):
         """ Process the Input section of the INP file.
         """
         inputs_data = self.inputs_data
@@ -71,14 +90,9 @@ class Inputs:
             self.current_label = [line[3], line[4]]
         elif line[0] == 'LINK':
             self.current_input = line[1]
-            if self.inputs_data.has_key(self.current_input):
-                self.count = len(self.inputs_data[self.current_input])
-                self.inputs_data[self.current_input].append({})
-                self.data = self.inputs_data[self.current_input][self.count]
-            else:
-                self.count = 0
-                inputs_data[self.current_input] = [{}]
-                self.data = self.inputs_data[self.current_input][self.count]
+            self.count = len(inputs_data.get(self.current_input,[]))
+            inputs_data[self.current_input] = inputs_data.get(self.current_input, []).append({})
+            self.data = inputs_data[self.current_input][self.count]
             if line[3] == 'EXACT':
                 self.exact = True
                 i = 1
@@ -96,25 +110,8 @@ class Inputs:
         elif line[0] == 'TIME':
             self.data['from'] = line[2]
             self.data['until'] = line[4]
-    def import_inputs(self):
-        """ Imports Input syntax into dictionary.
-        """
-        filename = self.filename
-        try:
-            with open(filename, "r") as data:
-                section = None
-                for row in data:
-                    line = line_process(row)
-                    if len(line) == 0:
-                        continue
-                    elif line[0] == '--':
-                        section = line[1]
-                    elif section == "Inputs:":
-                        self.read_inputs(line)
-                    else:
-                        continue
-        except IOError:
-            print 'cannot open', filename
+        else:
+            print 'Non-input data provided: %s' % line
     def output_inputs(self, inputs):
         """ Outputs Inputs syntax to VISSIM.
 
@@ -146,10 +143,7 @@ class Inputs:
                 print_data += self.output_inputs(inputs_data[key][0])
         update_section(self.filename,filename,'Inputs',print_data)
     def create_inputs(self, link, demand, composition, **kwargs):
-        if kwargs.has_key('inputs'):
-            inputs_num = kwargs['inputs']
-        else:
-            inputs_num = max(self.inputs_data.keys())+1
+        inputs_num = kwargs.get('inputs', max(self.inputs_data.keys())+1)
         self.inputs_data[inputs_num] = {}
         inputs = self.inputs_data[inputs_num]
         self.inputs_data['inputs'] = inputs_num
@@ -172,8 +166,8 @@ class Links:
         self.current_link = None
         self.over = None
         self.links = None
-        self.import_links()
-    def read_links(self, line):
+        import_section(self, filename)
+    def read_section(self, line):
         if line[0] == 'LINK':
             self.current_link = int(line[1])
             self.links_data[self.current_link] = {}
@@ -182,10 +176,10 @@ class Links:
             self.links['name'] = line[3]
             self.links['label'] = [line[5], line[6]]
             self.over = False
-        if line[0] == 'BEHAVIORTYPE':
+        elif line[0] == 'BEHAVIORTYPE':
             self.links['behaviortype'] = line[1]
             self.links['displaytype'] = line[3]
-        if line[0] == 'LENGTH':
+        elif line[0] == 'LENGTH':
             self.links['length'] = line[1]
             self.links['lanes'] = line[3]
             self.links['lane_width'] = []
@@ -205,11 +199,11 @@ class Links:
                 self.links['evaluation'] = ' EVALUATION'
             else:
                 self.links['evaluation'] = ''
-        if line[0] == 'FROM':
+        elif line[0] == 'FROM':
             self.links['from'] = (float(line[1]), float(line[2]))
-        if line[0] == 'TO':
+        elif line[0] == 'TO':
             self.links['to'] = (float(line[1]), float(line[2]))
-        if line[0] == 'OVER' and self.over == False:
+        elif line[0] == 'OVER' and self.over == False:
             self.links['over'] = []
             size = int(len(line)/float(4))
             for coord in range(0, size):
@@ -223,26 +217,8 @@ class Links:
                 x = float(line[(4*coord)+1])
                 y = float(line[(4*coord)+2])
                 self.links['over'].append((x,y))
-    def import_links(self):
-        """ Imports Links syntax into dictionary.
-        """
-        filename = self.filename
-        try:
-            with open(filename, "r") as data:
-                section = None
-                for row in data:
-                    line = line_process(row)
-                    if len(line) == 0:
-                        continue
-                    elif line[0] == '--':
-                        section = line[1]
-                    elif section == "Links:":
-                        self.read_links(line)
-                    else:
-                        continue
-                return self.links_data
-        except IOError:
-            print 'cannot open', filename
+        else:
+            print 'Non-link data provided: %s' % line
     def output_links(self, links):
         """ Outputs Links syntax to VISSIM.
 
@@ -279,10 +255,7 @@ class Links:
             print_data = self.output_links(value)
         update_section(self.filename,filename,'Links',print_data)
     def create_link(self, coord_from, coord_to, **kwargs):
-        if kwargs.has_key('link'):
-            link_num = kwargs['link']
-        else:
-            link_num = max(self.links_data.keys())+1
+        link_num = kwargs.get('link',max(self.links_data.keys())+1)
         self.links_data[link_num] = {}
         link = self.links_data[link_num]
         link['link'] = link_num
@@ -319,12 +292,12 @@ class Connector:
     """
     def __init__(self, filename):
         self.filename = filename
-        self.name = 'Connector'
+        self.name = 'Connectors'
         self.connector_data = {}
         self.current_connector = None
         self.connector = None
-        self.import_connector()
-    def read_connector(self, line):
+        import_section(self, filename)
+    def read_section(self, line):
         if line[0] == 'CONNECTOR':
             self.current_connector = int(line[1])
             self.connector_data[self.current_connector] = {}
@@ -345,15 +318,10 @@ class Connector:
                     self.connector['from_lanes'].append(line[4+lanes])
                 self.connector['from_at'] = line[6+lane_num]
         elif line[0] == 'OVER':
-            if self.connector.has_key('over'):
-                overs = len(line)/4
-                for num in range(0,overs):
-                    self.connector['over'].append((line[(num*4)+1],line[(num*4)+2]))
-            else:
-                self.connector['over'] = []
-                overs = len(line)/4
-                for num in range(0,overs):
-                    self.connector['over'].append((line[(num*4)+1],line[(num*4)+2]))
+            self.connector['over'] = self.connector.get('over',[])
+            overs = len(line)/4
+            for num in range(0,overs):
+                self.connector['over'].append((line[(num*4)+1],line[(num*4)+2]))
         elif line[0] == 'TO':
             if len(line) == 12:
                 self.connector['to'] = line[2]
@@ -385,27 +353,7 @@ class Connector:
             else:
                 self.connector['visualization'] = True
         else:
-            print 'Non-connector data provided'
-    def import_connector(self):
-        """ Imports connector syntax into dictionary.
-        """
-        filename = self.filename
-        try:
-            with open(filename, "r") as data:
-                section = None
-                for row in data:
-                    line = line_process(row)
-                    if len(line) == 0:
-                        continue
-                    elif line[0] == '--':
-                        section = line[1]
-                    elif section == "Connectors:":
-                        self.read_connector(line)
-                    else:
-                        continue
-                return self.connector_data
-        except IOError:
-            print 'cannot open', filename
+            print 'Non-connector data provided: %s' % line
     def output_connector(self, connector):
         """ Outputs connector syntax to VISSIM.
 
@@ -445,10 +393,7 @@ class Connector:
             print_data = self.output_connector(value)
         update_section(self.filename,filename,'Connectors',print_data)
     def create_connector(self, linksobj, from_link, to_link, **kwargs):
-        if kwargs.has_key('num'):
-            connector_num = int(kwargs['num'])
-        else:
-            connector_num = max(self.connector_data.keys())+1
+        connector_num = int(kwargs.get('num', max(self.connector_data.keys())+1))
         self.connector_data[connector_num] = {}
         connector = self.connector_data[connector_num]
         connector['connector'] = connector_num
@@ -493,8 +438,8 @@ class Parking:
         self.parking_data = {}
         self.current_parking = None
         self.parking = None
-        self.import_parking()
-    def read_parking(self, line):
+        import_section(self, filename)
+    def read_section(self, line):
         if line[0] == 'PARKING_LOT':
             self.current_parking = int(line[1])
             self.parking_data[self.current_parking] = {}
@@ -537,27 +482,7 @@ class Parking:
         elif line == "":
             pass
         else:
-            print 'Non-parking data provided'
-    def import_parking(self):
-        """ Imports Parking syntax into dictionary.
-        """
-        filename = self.filename
-        try:
-            with open(filename, "r") as data:
-                section = None
-                for row in data:
-                    line = line_process(row)
-                    if len(line) == 0:
-                        continue
-                    elif line[0] == '--':
-                        section = line[1]
-                    elif section == "Parking":
-                        self.read_parking(line)
-                    else:
-                        continue
-                return self.parking_data
-        except IOError:
-            print 'cannot open', filename
+            print 'Non-parking data provided: %s' % line
     def output_parking(self, parking):
         """ Outputs Parking syntax to VISSIM.
 
@@ -597,10 +522,7 @@ class Parking:
             print_data = self.output_parking(value)
         update_section(self.filename,filename,'Parking Lots',print_data)
     def create_parking(self, linksobj, link, length, at, lane, **kwargs):
-        if kwargs.has_key('num'):
-            parking_num = int(kwargs['num'])
-        else:
-            parking_num = max(self.parking_data.keys())+1
+        parking_num = int(kwargs.get('num', max(self.parking_data.keys())+1))
         self.parking_data[parking_num] = {}
         parking = self.parking_data[parking_num]
         parking['parking'] = parking_num
@@ -631,7 +553,7 @@ class Transit:
     """
     def __init__(self, filename):
         self.filename = filename
-        self.name = 'Transit'
+        self.name = 'Public Transport'
         self.transit_data = {}
         self.current_line = None
         self.current_route = None
@@ -641,8 +563,8 @@ class Transit:
         self.current_mdn = None
         self.current_pt = False
         self.data = None
-        self.import_transit()
-    def read_transit(self, line):
+        import_section(self, filename)
+    def read_section(self, line):
         """ Process the Transit Decision section of the INP file
         """
         if line[0] == "LINE":
@@ -683,26 +605,8 @@ class Transit:
             num = (len(line)/5)
             for i in range(0, num):
                 self.data['start_times'].append([line[(5*i)], line[2+(5*i)], line[4+(5*i)]])
-    def import_transit(self):
-        """ Imports transit Decision syntax into dictionary.
-        """
-        filename = self.filename
-        try:
-            with open(filename, "r") as data:
-                section = None
-                for row in data:
-                    line = line_process(row)
-                    if len(line) <= 1:
-                        continue
-                    elif line[0] == '--':
-                        section = line[1]
-                    elif section == "Public":
-                        self.read_transit(line)
-                    else:
-                        continue
-                return self.transit_data
-        except IOError:
-            print 'cannot open', filename
+        else:
+            print 'Non-transit data provided: %s' % line
     def output_transit(self, transit):
         """ Outputs transit Decision syntax to VISSIM.
 
@@ -741,10 +645,10 @@ class Transit:
     def create_transit(self, link, dest_link, at, desired_speed, vehicle_type, **kwargs):
         if kwargs.has_key('num'):
             transit_num = int(kwargs['num'])
-        elif len(self.transit_data.keys()) >= 1:
-            transit_num = max(self.transit_data.keys())+1
-        else:
+        elif len(self.transit_data.keys()) == 0:
             transit_num = 1
+        else:
+            transit_num = max(self.transit_data.keys())+1
         self.transit_data[transit_num] = {}
         transit = self.transit_data[transit_num]
         transit['line'] = str(transit_num)
@@ -785,8 +689,8 @@ class Routing:
         self.over = None
         self.count = None
         self.data = None
-        self.import_route()
-    def routing(self,line,links=True,link_key=False):
+        import_section(self, filename)
+    def read_section(self,line,links=True):
         """ Process the Route Decision section of the INP file
         """
         if line[0] == "ROUTING_DECISION":
@@ -797,19 +701,11 @@ class Routing:
         elif line[0] == "LINK":
             self.current_dec = line[1]
             self.current_link_location = line[3]
-            # Dictionary key is either link number or routing decision number
-            if link_key == True:
-                dict_key = self.current_dec
-            else:
-                dict_key = self.current_number
-            if self.routing_data.has_key(dict_key):
-                self.count = len(self.routing_data[dict_key])
-                self.routing_data[dict_key].append({})
-                self.data = self.routing_data[dict_key][self.count]
-            else:
-                self.count = 0
-                self.routing_data[dict_key] = [{}]
-                self.data = self.routing_data[dict_key][self.count]
+            dict_key = self.current_number
+            self.count = len(self.routing_data.get(dict_key,[]))
+            self.routing_data[dict_key] = self.routing_data.get(dict_key,[])
+            self.routing_data[dict_key].append({})
+            self.data = self.routing_data[dict_key][self.count]
             self.data['link'] = self.current_dec
             self.data['route'] = {}
             self.data['name'] = self.current_name
@@ -849,26 +745,8 @@ class Routing:
             self.data['route'][self.current_route]['over'] = line[1:]
         elif self.over is True and links is True:
             self.data['route'][self.current_route]['over'] += line
-    def import_route(self,link_key=False):
-        """ Imports Route Decision syntax into dictionary.
-        """
-        filename = self.filename
-        try:
-            with open(filename, "r") as data:
-                section = None
-                for row in data:
-                    line = line_process(row)
-                    if len(line) == 0:
-                        continue
-                    elif line[0] == '--':
-                        section = line[1]
-                    elif section == "Routing":
-                        self.routing(line)
-                    else:
-                        continue
-                return self.routing_data
-        except IOError:
-            print 'cannot open', filename
+        else:
+            print 'Non-routing data provided: %s' % line
     def output_routing(self, route):
         """ Outputs Route Decision syntax to VISSIM.
 
@@ -940,12 +818,12 @@ class Node:
     """
     def __init__(self, filename):
         self.filename = filename
-        self.name = 'Node'
+        self.name = 'Nodes'
         self.node_data = {}
         self.current_node = None
         self.node = None
-        self.import_node()
-    def read_node(self, line):
+        import_section(self, filename)
+    def read_section(self, line):
         if line[0] == 'NODE':
             self.current_node = int(line[1])
             self.node_data[self.current_node] = {}
@@ -962,27 +840,7 @@ class Node:
             for num in range(0,overs):
                 self.node['over'].append((line[(num*2)+2],line[(num*2)+3]))
         else:
-            print 'Non-node data provided'
-    def import_node(self):
-        """ Imports node syntax into dictionary.
-        """
-        filename = self.filename
-        try:
-            with open(filename, "r") as data:
-                section = None
-                for row in data:
-                    line = line_process(row)
-                    if len(line) == 0:
-                        continue
-                    elif line[0] == '--':
-                        section = line[1]
-                    elif section == "Nodes:":
-                        self.read_node(line)
-                    else:
-                        continue
-                return self.node_data
-        except IOError:
-            print 'cannot open', filename
+            print 'Non-node data provided: %s' % line
     def output_node(self, node):
         """ Outputs node syntax to VISSIM.
 
