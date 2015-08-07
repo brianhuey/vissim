@@ -71,8 +71,8 @@ class Inputs:
         self.filename = filename
         self.name = 'Inputs'
         self.inputs_data = {}
-        self.current_input = None
-        self.current_input_number = None
+        self.current_link_num = None
+        self.current_input_num = None
         self.current_input_name = None
         self.current_label = None
         self.count = 0
@@ -82,17 +82,17 @@ class Inputs:
     def read_section(self, line):
         """ Process the Input section of the INP file.
         """
-        inputs_data = self.inputs_data
         if line[0] == 'INPUT':
-            self.current_input_number = line[1]
+            self.current_input_num = line[1]
         elif line[0] == 'NAME':
             self.current_input_name = line[1]
             self.current_label = [line[3], line[4]]
         elif line[0] == 'LINK':
-            self.current_input = line[1]
-            self.count = len(inputs_data.get(self.current_input,[]))
-            inputs_data[self.current_input] = inputs_data.get(self.current_input, []).append({})
-            self.data = inputs_data[self.current_input][self.count]
+            self.current_link_num = line[1]
+            self.count = len(self.inputs_data.get(self.current_link_num, []))
+            self.inputs_data[self.current_link_num] = self.inputs_data.get(self.current_link_num, [])
+            self.inputs_data[self.current_link_num].append({})
+            self.data = self.inputs_data[self.current_link_num][self.count]
             if line[3] == 'EXACT':
                 self.exact = True
                 i = 1
@@ -101,9 +101,9 @@ class Inputs:
                 self.exact = False
             current_demand = line[3+i]
             current_comp = line[5+i]
-            self.data['link'] = self.current_input
+            self.data['link'] = self.current_link_num
             self.data['name'] = self.current_input_name
-            self.data['input'] = self.current_input_number
+            self.data['input'] = self.current_input_num
             self.data['label'] = self.current_label
             self.data['Q'] = current_demand
             self.data['composition'] = current_comp
@@ -141,7 +141,7 @@ class Inputs:
                     print_data += self.output_inputs(dic)
             else:
                 print_data += self.output_inputs(inputs_data[key][0])
-        update_section(self.filename,filename,'Inputs',print_data)
+        update_section(self.filename,filename,self.name,print_data)
     def create_inputs(self, link, demand, composition, **kwargs):
         inputs_num = kwargs.get('inputs', max(self.inputs_data.keys())+1)
         self.inputs_data[inputs_num] = {}
@@ -253,7 +253,7 @@ class Links:
         print_data = ['-- Links: --\n------------\n']
         for key, value in links_data.items():
             print_data = self.output_links(value)
-        update_section(self.filename,filename,'Links',print_data)
+        update_section(self.filename,filename,self.name,print_data)
     def create_link(self, coord_from, coord_to, **kwargs):
         link_num = kwargs.get('link',max(self.links_data.keys())+1)
         self.links_data[link_num] = {}
@@ -391,7 +391,7 @@ class Connector:
         print_data = ['-- Connectors: --\n-----------------\n']
         for key, value in connector_data.items():
             print_data = self.output_connector(value)
-        update_section(self.filename,filename,'Connectors',print_data)
+        update_section(self.filename,filename,self.name,print_data)
     def create_connector(self, linksobj, from_link, to_link, **kwargs):
         connector_num = int(kwargs.get('num', max(self.connector_data.keys())+1))
         self.connector_data[connector_num] = {}
@@ -434,7 +434,7 @@ class Parking:
     """
     def __init__(self, filename):
         self.filename = filename
-        self.name = 'Parking'
+        self.name = 'Parking Lots'
         self.parking_data = {}
         self.current_parking = None
         self.parking = None
@@ -520,7 +520,7 @@ class Parking:
         print_data = ['-- Parking Lots: --\n-------------------\n']
         for key, value in parking_data.items():
             print_data = self.output_parking(value)
-        update_section(self.filename,filename,'Parking Lots',print_data)
+        update_section(self.filename,filename,self.name,print_data)
     def create_parking(self, linksobj, link, length, at, lane, **kwargs):
         parking_num = int(kwargs.get('num', max(self.parking_data.keys())+1))
         self.parking_data[parking_num] = {}
@@ -641,7 +641,7 @@ class Transit:
         print_data = ['-- Public Transport: --\n-----------------\n']
         for key, value in transit_data.items():
             print_data = self.output_transit(value)
-        update_section(self.filename,filename,'Public Transport',print_data)
+        update_section(self.filename,filename,self.name,print_data)
     def create_transit(self, link, dest_link, at, desired_speed, vehicle_type, **kwargs):
         if kwargs.has_key('num'):
             transit_num = int(kwargs['num'])
@@ -812,7 +812,7 @@ class Routing:
                     print_data += self.output_routing(dic)
             else:
                 print_data += self.output_routing(routing_data[key][0])
-        update_section(self.filename,filename,'Routing Decisions',print_data)
+        update_section(self.filename,filename,self.name,print_data)
 class Node:
     """ Handles Node section of .INP file.
     """
@@ -872,7 +872,7 @@ class Node:
         print_data = ['-- Nodes: --\n------------\n']
         for key, value in node_data.items():
             print_data = self.output_node(value)
-        update_section(self.filename,filename,'Nodes',print_data)
+        update_section(self.filename,filename,self.name,print_data)
     def create_node_area(self, area, **kwargs):
         if kwargs.has_key('num'):
             node_num = int(kwargs['num'])
