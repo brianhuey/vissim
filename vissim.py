@@ -110,7 +110,7 @@ class Inputs:
             self.curr_data['until'] = line[4]
         else:
             print 'Non-input data provided: %s' % line
-    def output_inputs(self, inputs):
+    def output(self, inputs):
         """ Outputs Inputs syntax to VISSIM.
 
         Input: A single Inputs dictionary
@@ -125,7 +125,7 @@ class Inputs:
             vissim_out.append('LINK '.rjust(10) + inputs['link'] + ' Q ' + str(int(float(inputs['Q']))) + '.000 COMPOSITION ' + str(inputs['composition']))
         vissim_out.append('TIME FROM '.rjust(15) + inputs['from'] + ' UNTIL ' + inputs['until'])
         return vissim_out
-    def export_inputs(self, filename):
+    def export(self, filename):
         """ Prepare for export all inputs in a given inputs object
 
             Input: Inputs object
@@ -162,6 +162,7 @@ class Links:
         self.data = {}
         self.over = None
         self.curr_data = None
+        self.closed = None
         import_section(self, filename)
     def read_section(self, line):
         if line[0] == 'LINK':
@@ -197,8 +198,6 @@ class Links:
                 self.curr_data['evaluation'] = ''
         elif line[0] == 'FROM':
             self.curr_data['from'] = (float(line[1]), float(line[2]))
-        elif line[0] == 'TO':
-            self.curr_data['to'] = (float(line[1]), float(line[2]))
         elif line[0] == 'OVER' and self.over == False:
             self.curr_data['over'] = []
             size = int(len(line)/float(4))
@@ -213,9 +212,17 @@ class Links:
                 x = float(line[(4*coord)+1])
                 y = float(line[(4*coord)+2])
                 self.curr_data['over'].append((x,y))
+        elif line[0] == 'TO':
+            self.curr_data['to'] = (float(line[1]), float(line[2]))
+        elif line[0] == 'CLOSED':
+            self.curr_data['closed'] = {}
+        elif self.curr_data.has_key('closed') == True and line[0] == 'LANE':
+            lane = line[1]
+            veh_classes = line[3:]
+            self.curr_data['closed'][lane] = veh_classes
         else:
             print 'Non-link data provided: %s' % line
-    def output_links(self, links):
+    def output(self, links):
         """ Outputs Links syntax to VISSIM.
 
         Input: A single links dictionary
@@ -239,7 +246,7 @@ class Links:
             vissim_out.append(over_str)
         vissim_out.append('TO '.rjust(5) + str(links['to'][0]).rjust(10) + ' ' + str(links['to'][1]))
         return vissim_out
-    def export_links(self, filename):
+    def export(self, filename):
         """ Prepare for export all links in a given links object
 
             Input: Links object
@@ -286,6 +293,7 @@ class Connector:
         self.name = 'Connectors'
         self.data = {}
         self.curr_data = None
+        self.curr_lane = None
         import_section(self, filename)
     def read_section(self, line):
         if line[0] == 'CONNECTOR':
@@ -342,6 +350,16 @@ class Connector:
                 self.curr_data['visualization'] = False
             else:
                 self.curr_data['visualization'] = True
+        elif line[0] == 'NOLANECHANGE':
+            self.curr_data['nolanechange'] = {}
+            for i, j in enumerate(line):
+                if j == 'LANE':
+                    self.curr_data['nolanechange'][line[i+1]] = {}
+                    self.curr_lane = self.curr_data['nolanechange'][line[i+1]]
+                elif j == 'LEFT':
+                    self.curr_lane['left'] = [v for v in line[i+1:None if 'LANE' or 'RIGHT' not in line[i+1:] else min([line[i+1:].index('LANE'), line[i+1:].index('RIGHT')])]]
+                elif j == 'RIGHT':
+                    self.curr_lane['right'] = [v for v in line[i+1:None if 'LANE' or 'LEFT' not in line[i+1:] else min([line[i+1:].index('LANE'), line[i+1:].index('LEFT')])]]
         else:
             print 'Non-connector data provided: %s' % line
     def output(self, connector):
@@ -371,7 +389,7 @@ class Connector:
         else:
             vissim_out.append('SEGMENT LENGTH '.rjust(17) + connector['segment_length'] + ' ANIMATION')
         return vissim_out
-    def export_connector(self, filename):
+    def export(self, filename):
         """ Prepare for export all connector lots in a given connector object
 
             Input: connector object
@@ -393,7 +411,7 @@ class Connector:
         over1 = self.data[from_link]['to']
         over4 = self.data[to_link]['from']
         if over4[0] == over1[0] and over4[1] == over1[1]:
-            over1 = (linksobj.data[from_link]['to'][0], linksobj.data[from_link]['to'][1]+0.001)
+            over1 = (self.data[from_link]['to'][0], self.data[from_link]['to'][1]+0.001)
             over2 = (over4[0]+0.001, over4[1])
             over3 = (median([over2[0], over4[0]]), median([over2[1], over4[1]]))
         else:
@@ -491,7 +509,7 @@ class Parking:
         if parking.has_key('composition'):
             vissim_out.append('COMPOSITION '.rjust(14) + parking['composition'])
         return vissim_out
-    def export_parking(self, filename):
+    def export(self, filename):
         """ Prepare for export all parking lots in a given parking object
 
             Input: Parking object
@@ -591,7 +609,7 @@ class Transit:
         if len(transit['start_times']) > 0:
             vissim_out.append(time_str)
         return vissim_out
-    def export_transit(self, filename):
+    def export(self, filename):
         """ Prepare for export all transit routes in a given transit object
 
             Input: transit object
@@ -672,7 +690,7 @@ class Routing:
                     if len(route['over']) == 1:
                         vissim_out.append(over_str)
                 return vissim_out
-    def read_section(self, line, links=True):
+    def read_section(self, line):
         """ Process the Route Decision section of the INP file
         """
         if line[0] == "ROUTING_DECISION":
@@ -680,7 +698,7 @@ class Routing:
             self.curr_route = None
             self.over = False
             #Routing decision number is dict key
-            self.data[line[1]] = self.data.get(line[1], {'route': {}})
+            self.data[line[1]] = {'route': {}}
             self.curr_data = self.data[line[1]]
             self.curr_data['number'] = line[1]
             self.curr_data['name'] = line[3]
@@ -714,11 +732,11 @@ class Routing:
                 curr_fraction.append(fraction)
             self.curr_route = self.Route(self.curr_route_num, self.destination_link, self.at_link, curr_fraction)
             self.curr_data['route'][self.curr_route_num] = self.curr_route
-        elif line[0] == "OVER" and links is True:
+        elif line[0] == "OVER":
             self.over = True
-            self.curr_route.get('over', line[1:])
-        elif self.over is True and links is True:
-            self.curr_route['over'] += line
+            self.curr_route.data['over'] = line[1:]
+        elif self.over is True:
+            self.curr_route.data['over'] += line
         else:
             print 'Non-routing data provided: %s' % line
     def output(self):
@@ -739,7 +757,7 @@ class Routing:
         for route in routing['route'].values():
             vissim_out += route.output()
         return vissim_out
-    def export_routing(self, filename):
+    def export(self, filename):
         """ Prepare for export all routes in a given route object
 
             Input: Route object
@@ -796,7 +814,7 @@ class Node:
                 over_str += '\nLINK '.rjust(10) + str(i).rjust(10)
             vissim_out.append('NETWORK_AREA'.rjust(16) + over_str)
         return vissim_out
-    def export_node(self, filename):
+    def export(self, filename):
         """ Prepare for export all node lots in a given node object
 
             Input: node object
