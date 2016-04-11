@@ -227,15 +227,6 @@ class Inputs:
         """
         _exportSection(self, filename)
 
-    def updateInput(self, link, time_from, time_until, composition, demand):
-        """ Update demand values for a given link, time period and composition
-        """
-        compare_dict = {'link': link, 'from': time_from, 'until': time_until,
-                        'composition': composition}
-        for inp in self.data.values():
-            if {key: inp[key] for key in compare_dict.keys()} == compare_dict:
-                inp['Q'] = demand
-
     def create(self, link, demand, composition, **kwargs):
         inputs_num = str(kwargs.get('inputs', max(self.data.keys())+1))
         self.data[inputs_num] = {}
@@ -280,6 +271,15 @@ class Inputs:
             raise KeyError('%s not in data' % (linknum))
         else:
             return result
+
+    def updateInput(self, link, time_from, time_until, composition, demand):
+        """ Update demand values for a given link, time period and composition
+        """
+        compare_dict = {'link': link, 'from': time_from, 'until': time_until,
+                        'composition': composition}
+        for inp in self.data.values():
+            if {key: inp[key] for key in compare_dict.keys()} == compare_dict:
+                inp['Q'] = demand
 
 
 class Links:
@@ -398,7 +398,7 @@ class Links:
         """
         _exportSection(self, filename)
 
-    def createLink(self, coord_from, coord_to, **kwargs):
+    def create(self, coord_from, coord_to, **kwargs):
         link_num = kwargs.get('link', max(self.data.keys())+1)
         self.data[link_num] = {}
         link = self.data[link_num]
@@ -430,6 +430,20 @@ class Links:
         else:
             link['length'] = str(round(_sqrt((link['to'][0]-link['from'][0])**2
                                  + (link['to'][1]-link['from'][1])**2), 3))
+
+    def get(self, linknum, label):
+        """ Get value from Link.
+            Input: Link number, Value label
+            Output: Value
+        """
+        return _getData(self.data, linknum, label)
+
+    def set(self, linknum, label, value):
+        """ Set value from Link.
+            Input: Link number, Value label, value
+            Output: Change is made in place
+        """
+        _setData(self.data, linknum, label, value)
 
 
 class Connector:
@@ -615,6 +629,20 @@ class Connector:
         connector['surcharge2'] = kwargs.get('surcharge2', '0.00000')
         connector['segment_length'] = kwargs.get('segment_length', '10.000')
         connector['visualization'] = kwargs.get('visualization', True)
+
+    def get(self, connnum, label):
+        """ Get value from Connector.
+            Input: Connector number, Value label
+            Output: Value
+        """
+        return _getData(self.data, linknum, label)
+
+    def set(self, connnum, label, value):
+        """ Set value from Connector.
+            Input: Connector number, Value label, value
+            Output: Change is made in place
+        """
+        _setData(self.data, linknum, label, value)
 
 
 class Parking:
