@@ -4,6 +4,7 @@ from re import findall as _findall
 from math import sqrt as _sqrt
 import regex
 
+
 def _median(lst):
     """ Stock median function from: http://stackoverflow.
     com/questions/24101524/finding-median-of-list-in-python
