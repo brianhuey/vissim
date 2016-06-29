@@ -16,8 +16,8 @@ Load, manipulate and create VISSIM v5.x networks using Python.
 - Create objects
 
 ##Install:
-    ``` python
-    python setup.py install
+``` python
+python setup.py install
 
 ##Usage:
 ```python
