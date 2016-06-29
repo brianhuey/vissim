@@ -6,6 +6,4 @@ from vissim import (
     Node,
     Transit,
     Parking,
-    line_process,
-    update_section
     )

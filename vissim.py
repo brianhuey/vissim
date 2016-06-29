@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-""" VISSIM Tools v.0. """
-from re import findall as _findall
+""" VISSIM Tools v2.0 """
+from re import findall as _findall, match as _match, search as _search
+from re import split as _split
 from math import sqrt as _sqrt
-import regex
+from copy import copy as _copy
 
 
 def _median(lst):
@@ -13,32 +14,16 @@ def _median(lst):
     if len(lst) < 1:
         return None
     if len(lst) % 2 == 1:
-        return lst[((len(lst)+1)/2)-1]
+        return lst[((len(lst) + 1) / 2) - 1]
     else:
-        return float(sum(lst[(len(lst)/2)-1:(len(lst)/2)+1]))/2.0
+        return float(sum(lst[(len(lst) / 2) - 1:(len(lst) / 2) + 1])) / 2.0
 
 
-def _removeQuotes(line):
-    """ Process VISSIM text such that double quotations don't get split by
-    space delimiter.
-    """
-    if '"' in line:
-        matches = _findall(r'\"(.+?)\"', line)
-        matchblank = _findall(r'\"(.?)\"', line)
-        final_line = []
-        line = line.split('"')
-        for i in line:
-            if i in matches:
-                final_line.append('"' + i + '"')
-                matches.remove(i)
-            elif i in matchblank:
-                final_line.append('""')
-                matchblank.remove(i)
-            else:
-                final_line += i.split()
-        return final_line
+def _flatten(coll):
+    if isinstance(coll, list):
+        return [int(a) for i in coll for a in _flatten(i)]
     else:
-        return line.strip().split()
+        return [coll]
 
 
 def _importSection(obj, filename):
@@ -52,38 +37,38 @@ def _importSection(obj, filename):
                 found = _findall(r'(?<=\- )(.*?)(?=\: -)', row)
                 if row in ['\n', '\r\n']:
                     continue
-                elif len(found) > 0:
+                elif found:
                     section = found[0]
                 elif section == name and row[0] is not '-':
-                    obj._readSection(_removeQuotes(row))
+                    obj._readSection(row)
                 else:
                     continue
     except IOError:
         print 'cannot open', filename
 
 
-def _updateFile(org_file, new_file, name, print_data):
+def _updateFile(orgFile, newFile, name, printData):
     """ Update a section of a VISSIM .INP file.
         Inputs: filename, object type(Inputs, Routing Decision, etc.) and list
         of strings with VISSIM syntax.
         Outputs: new file
     """
     search = '-- ' + name + ': --'
-    f = open(org_file, 'r')
+    f = open(orgFile, 'r')
     lines = f.readlines()
     f.close()
-    f = open(new_file, 'w')
-    start_delete = False
-    print 'Writing %s to %s ...' % (name, new_file)
+    f = open(newFile, 'w')
+    startDelete = False
+    print 'Writing %s to %s ...' % (name, newFile)
     for line in lines:
-        if start_delete is True and line[:3] == '-- ':
-            start_delete = False
-            f.write(line)
+        if startDelete is True and line[:3] == '-- ':
+            startDelete = False
+            f.write('\n\n\n')
         if line[:len(search)] == search:
-            start_delete = True
-            for new_line in print_data:
-                f.write(str(new_line) + '\n')
-        if start_delete is False:
+            startDelete = True
+            for newLine in printData:
+                f.write(str(newLine) + '\n')
+        if startDelete is False:
             f.write(line)
     f.close()
 
@@ -94,72 +79,73 @@ def _exportSection(obj, filename):
         Input: Dict object
         Output: List of all items for a given class in VISSIM syntax
     """
-    first_line = '-- ' + obj.name + '--\n'
-    second_line = '-' * len(first_line) + '\n'
+    first_line = '-- ' + obj.name + ': --\n'
+    second_line = '-' * (len(first_line) - 1) + '\n'
     print_data = [first_line + second_line]
     print 'Reading %s ...' % obj.name
     for value in obj.data.values():
-        print_data += obj.output(value)
+        print_data += obj._output(value)
     print 'Updating %s ...' % obj.name
     _updateFile(obj.filename, filename, obj.name, print_data)
 
 
-def _getLineVariable(match, line, items=1, multi=False):
-    """ Matches the text string corresponding to a VISSIM parameter and
-    returns its value. If mult is True, return a list, otherwise return a
-    string.
-    """
-    if items > 1:
-        w = '\w+' + (' \w+' * (items - 1))
-    else:
-        w = 'w\+'
-    re_string = '(?<=%s\s{1,})%s' % (match, w)
-    if multi:
-        m = regex.findall(re_string, line)
-        return m
-    else:
-        if items > 1:
-            m = regex.findall(re_string, line)
-            return m[0].split(' ')
-        else:
-            m = regex.findall(re_string, line)
-            return m
+def _checkKeyData(obj, key, label):
+    if key is not None:
+        if key not in obj.data:
+            raise KeyError('%s not a valid key for object %s' %
+                           (key, obj.name))
+    if label not in obj.types:
+        raise KeyError('%s not a valid label for object %s' %
+                       (label, obj.name))
+    return True
 
 
-def _checkStr(data, key):
-    """ Checks if key is a str, if not converts and checks its existence
-    """
-    if isinstance(key, str) is False:
-        key = str(key)
-    key = key.lower()
-    if key not in data:
-        raise KeyError('%s not in data' % (key))
-    return key
-
-
-def _getData(data, key, label):
+def _getData(obj, key, label):
     """ Returns requested value from vissim object
     """
-    key = _checkStr(data, key)
-    label = _checkStr(data[key], label)
-    value = data[key][label]
-    return value
+    _checkKeyData(obj, key, label)
+    if key is None:
+        new = obj.data[label]
+    else:
+        new = obj.data[key][label]
+    return _copy(new)
 
 
-def _setData(data, key, label, value):
+def _setData(obj, key, label, value):
     """ Sets given value in vissim object
     """
-    key = _checkStr(data, key)
-    label = _checkStr(data[key], label)
-    data[key][label] = value
+    _checkKeyData(obj, key, label)
+    if not isinstance(value, obj.types[label]):
+        value = obj.types[label](value)
+    if key is None:
+        obj.data[label] = value
+    else:
+        obj.data[key][label] = value
 
 
-def _clearAll(data, label):
-    """ Clears values for a given label in visism object.
-    """
-    for key in data.keys():
-        label = _checkStr(data[key], label)
-        _setData(data, key, label, '')
+def _updateData(obj, key, label, value, pos=None, newKey=None):
+    _checkKeyData(obj, key, label)
+    if key is None:
+        if (isinstance(obj.data[label], list) is True) and (pos is None):
+            obj.data[label].append(value)
+            obj.data[label] = list(_flatten(obj.data[label]))
+        elif isinstance(obj.data[label], list) and pos:
+            obj.data[label].insert(pos, value)
+            obj.data[label] = list(_flatten(obj.data[label]))
+    else:
+        if isinstance(obj.data[key][label], dict):
+            obj.data[key][label][newKey] = value
+        if (isinstance(obj.data[key][label], list) is True) and (pos is None):
+            obj.data[label].append(value)
+            obj.data[label] = list(_flatten(obj.data[label]))
+        elif isinstance(obj.data[key][label], list) and pos:
+            obj.data[label].insert(pos, value)
+            obj.data[label] = list(_flatten(obj.data[label]))
+
+
+def _convertType(iterable, newType):
+    iterType = type(iterable)
+    return iterType([newType(i) for i in iterable])
 
 
 class Inputs:
@@ -169,58 +155,118 @@ class Inputs:
         self.filename = filename
         self.name = 'Inputs'
         self.data = {}
-        self.curr_data = None
+        self.currData = None
+        self.types = {'composition': int, 'exact': bool, 'from': float,
+                      'input': int, 'label': tuple, 'link': int, 'name': str,
+                      'q': float, 'until': float}
         _importSection(self, filename)
+
+    def get(self, inputNum, label, string=True):
+        """ Get value from Input.
+            Input: Input number, Value label
+            Output: Value
+        """
+        if string:
+            return str(_getData(self, inputNum, label))
+        else:
+            return _getData(self, inputNum, label)
+
+    def set(self, inputNum, label, value):
+        """ Set value from Input.
+            Input: Input number, Value label, value
+            Output: Change is made in place
+        """
+        _setData(self, inputNum, label, value)
+
+    def getInputNumByLink(self, linkNum):
+        """ Get value from Input by link number
+            Input: Link number
+            Output: Input number as key, time and composition as values
+        """
+        if isinstance(linkNum, str) is False:
+            linkNum = str(linkNum)
+        result = {k: {'from': v['from'], 'until': v['until'], 'composition':
+                      v['composition']} for k, v in self.data.items()
+                  if v['link'] == linkNum}
+        if len(result) == 0:
+            raise KeyError('%s not in data' % (linkNum))
+        else:
+            return result
+
+    def create(self, linkNum, demand, comp, **kwargs):
+        if self.data.keys():
+            num = max(self.data.keys()) + 1
+        else:
+            num = 1
+        inputNum = kwargs.get('input', num)
+        self.data[inputNum] = {}
+        self.set(inputNum, 'input', inputNum)
+        self.set(inputNum, 'q', demand)
+        self.set(inputNum, 'link', linkNum)
+        self.set(inputNum, 'composition', comp)
+        # Default values
+        self.set(inputNum, 'name', kwargs.get('name', '""'))
+        self.set(inputNum, 'label', kwargs.get('label', ('0.00', '0.00')))
+        self.set(inputNum, 'from', kwargs.get('from', '0.0'))
+        self.set(inputNum, 'until', kwargs.get('until', '3600.0'))
+        self.set(inputNum, 'exact', kwargs.get('exact', False))
 
     def _readSection(self, line):
         """ Process the Input section of the INP file.
         """
-        if line[0] == 'INPUT':
-            self.data[line[1]] = {'input': line[1]}
-            self.curr_data = self.data[line[1]]
-        elif line[0] == 'NAME':
-            self.curr_data['name'] = line[1]
-            self.curr_data['label'] = line[3]
-        elif line[0] == 'LINK':
-            self.curr_data['link'] = line[1]
-            if line[3] == 'EXACT':
-                self.curr_data['exact'] = True
-                i = 1
+        if _match('^INPUT\s+\d+', line):
+            inputNum = self.types['input'](_findall('INPUT\s+(\d+)', line)[0])
+            self.currData = {'input': inputNum}
+        elif _match('^\s+NAME', line):
+            self.currData['name'] = _findall('NAME\s+(".+"|"")', line)[0]
+            self.currData['label'] = _findall('LABEL\s+(-?\d+.\d+)\s(-?\d+.\d+)', line)[0]
+        elif _match('^\s+LINK', line):
+            self.currData['link'] = _findall('LINK\s+(\d+)', line)[0]
+            if _search('EXACT', line):
+                self.currData['exact'] = True
+                self.currData['q'] = _findall('Q EXACT (.+) COMPOSITION',
+                                              line)[0]
             else:
-                i = 0
-                self.curr_data['exact'] = False
-            self.curr_data['Q'] = line[3+i]
-            curr_comp = line[5+i]
-            self.curr_data['composition'] = curr_comp
-        elif line[0] == 'TIME':
-            self.curr_data['from'] = line[2]
-            self.curr_data['until'] = line[4]
+                self.currData['exact'] = False
+                self.currData['q'] = _findall('Q (.+) COMPOSITION', line)[0]
+            self.currData['composition'] = _findall('COMPOSITION (\d)',
+                                                    line)[0]
+        elif _match('^\s+TIME', line):
+            self.currData['from'] = _findall('FROM (\d+.\d+)', line)[0]
+            self.currData['until'] = _findall('UNTIL (\d+.\d+)', line)[0]
+            # Last line, create Input object
+            self.create(self.currData['link'], self.currData['q'],
+                        self.currData['composition'], **self.currData)
         else:
-            print 'Non-input data provided: %s' % line
+            print 'Non-Input data provided: %s' % line
 
-    def __output(self, inputs):
+    def _output(self, inputs):
         """ Outputs Inputs syntax to VISSIM.
 
         Input: A single Inputs dictionary
         Output: Inputs back into VISSIM syntax
         """
-        vissim_out = []
-        vissim_out.append('INPUT ' + str(inputs['input']).rjust(6))
-        vissim_out.append('NAME '.rjust(10) + inputs['name'] + ' LABEL  ' +
-                          inputs['label'][0] + ' ' + inputs['label'][1])
-        if inputs['exact'] is True:
-            vissim_out.append('LINK '.rjust(10) + inputs['link'] + ' Q EXACT '
-                              + str(int(float(inputs['Q']))) + '.000 \
-                              COMPOSITION ' + str(inputs['composition']))
-        else:
-            vissim_out.append('LINK '.rjust(10) + inputs['link'] + ' Q ' + str(
-                             int(float(inputs['Q']))) + '.000 COMPOSITION ' +
-                             str(inputs['composition']))
-        vissim_out.append('TIME FROM '.rjust(15) + inputs['from'] + ' UNTIL ' +
-                          inputs['until'])
-        return vissim_out
+        vissimOut = []
+        inputNum = inputs['input']
 
-    def __export(self, filename):
+        def _out(label, s=True):
+            return self.get(inputNum, label, string=s)
+        vissimOut.append('INPUT ' + _out('input').rjust(6))
+        vissimOut.append('NAME '.rjust(10) + _out('name') + ' LABEL  ' +
+                         _out('label', s=False)[0] + ' ' +
+                         _out('label', s=False)[1])
+        if _out('exact', s=False) is True:
+            vissimOut.append('LINK '.rjust(10) + _out('link') + ' Q EXACT ' +
+                             _out('q') + ' COMPOSITION ' +
+                             _out('composition'))
+        else:
+            vissimOut.append('LINK '.rjust(10) + _out('link') + ' Q ' +
+                             _out('q') + ' COMPOSITION ' + _out('composition'))
+        vissimOut.append('TIME FROM '.rjust(15) + _out('from') + ' UNTIL ' +
+                         _out('until'))
+        return vissimOut
+
+    def export(self, filename):
         """ Prepare for export all inputs in a given inputs object
 
             Input: Inputs object
@@ -228,59 +274,14 @@ class Inputs:
         """
         _exportSection(self, filename)
 
-    def create(self, link, demand, composition, **kwargs):
-        inputs_num = str(kwargs.get('inputs', max(self.data.keys())+1))
-        self.data[inputs_num] = {}
-        self.curr_data = self.data[inputs_num]
-        self.curr_data['inputs'] = inputs_num
-        self.curr_data['Q'] = demand
-        self.curr_data['link'] = link
-        self.curr_data['composition'] = composition
-        # Default values
-        self.curr_data['name'] = kwargs.get('name', '""')
-        self.curr_data['label'] = kwargs.get('label', ['0.00', '0.00'])
-        self.curr_data['from'] = kwargs.get('from', [0.000])
-        self.curr_data['until'] = kwargs.get('until', [3600.00])
-        assert len(self.data['from']) == len(self.data['to']) == len(self.data[
-               'Q']) == len(self.data['composition'])
-
-    def get(self, inputnum, label):
-        """ Get value from Input.
-            Input: Input number, Value label
-            Output: Value
-        """
-        return _getData(self.data, inputnum, label)
-
-    def set(self, inputnum, label, value):
-        """ Set value from Input.
-            Input: Input number, Value label, value
-            Output: Change is made in place
-        """
-        _setData(self.data, inputnum, label, value)
-
-    def getInputNumByLink(self, linknum):
-        """ Get value from Input by link number
-            Input: Link number
-            Output: Input number as key, time and composition as values
-        """
-        if isinstance(linknum, str) is False:
-            linknum = str(linknum)
-        result = {k: {'from': v['from'], 'until': v['until'], 'composition':
-                      v['composition']} for k, v in self.data.items()
-                  if v['link'] == linknum}
-        if len(result) == 0:
-            raise KeyError('%s not in data' % (linknum))
-        else:
-            return result
-
-    def updateInput(self, link, time_from, time_until, composition, demand):
+    def updateInput(self, link, timeFrom, timeUntil, composition, demand):
         """ Update demand values for a given link, time period and composition
         """
-        compare_dict = {'link': link, 'from': time_from, 'until': time_until,
-                        'composition': composition}
+        compareDict = {'link': link, 'from': timeFrom, 'until': timeUntil,
+                       'composition': composition}
         for inp in self.data.values():
-            if {key: inp[key] for key in compare_dict.keys()} == compare_dict:
-                inp['Q'] = demand
+            if {key: inp[key] for key in compareDict.keys()} == compareDict:
+                inp['q'] = demand
 
 
 class Links:
@@ -291,160 +292,177 @@ class Links:
         self.name = 'Links'
         self.data = {}
         self.over = None
-        self.curr_data = None
+        self.currData = None
         self.closed = None
+        self.types = {'link': int, 'name': str, 'label': tuple,
+                      'behaviortype': int, 'displaytype': int, 'length': float,
+                      'lanes': int, 'lane_width': list, 'gradient': float,
+                      'cost': float, 'surcharges': list,
+                      'segment_length': float, 'evaluation': bool,
+                      'from': list, 'over': list, 'to': list, 'closed': dict}
         _importSection(self, filename)
 
+    def get(self, linkNum, label, string=True):
+        """ Get value from Link.
+            Input: Link number, Value label
+            Output: Value
+        """
+        if string:
+            return str(_getData(self, linkNum, label))
+        else:
+            return _getData(self, linkNum, label)
+
+    def set(self, linkNum, label, value):
+        """ Set value from Link.
+            Input: Link number, Value label, value
+            Output: Change is made in place
+        """
+        _setData(self, linkNum, label, value)
+
+    def create(self, coordFrom, coordTo, **kwargs):
+        if self.data.keys():
+            num = max(self.data.keys()) + 1
+        else:
+            num = 1
+        linkNum = kwargs.get('link', num)
+        self.data[linkNum] = {}
+        self.set(linkNum, 'link', linkNum)
+        self.set(linkNum, 'from', coordFrom)
+        self.set(linkNum, 'to', coordTo)
+        # Default values
+        self.set(linkNum, 'name', kwargs.get('name', '""'))
+        self.set(linkNum, 'behaviortype', kwargs.get('behaviortype', 1))
+        self.set(linkNum, 'cost', kwargs.get('cost', 0.00000))
+        self.set(linkNum, 'displaytype', kwargs.get('displaytype', 1))
+        self.set(linkNum, 'gradient', kwargs.get('gradient', 0.00000))
+        self.set(linkNum, 'label', kwargs.get('label', ('0.00', '0.00')))
+        self.set(linkNum, 'lane_width', kwargs.get('lane_width', [3.66]))
+        self.set(linkNum, 'lanes', kwargs.get('lanes', 1))
+        self.set(linkNum, 'segment_length', kwargs.get('segment_length',
+                 10.000))
+        self.set(linkNum, 'surcharges', kwargs.get('surcharges',
+                 [0.00000, 0.00000]))
+        self.set(linkNum, 'evaluation', kwargs.get('evaluation', False))
+        self.set(linkNum, 'over', kwargs.get('over', []))
+        self.set(linkNum, 'length', kwargs.get('length', 0))
+        if self.get(linkNum, 'over') and self.get(linkNum, 'length') == 0:
+            x1, y1 = self.get(linkNum, 'from')
+            z1 = 0
+            length = 0
+            for coord in self.get(linkNum, 'over'):
+                x2, y2, z2 = _convertType(coord, float)
+                dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
+                length += _sqrt(dx**2 + dy**2 + dz**2)
+                x1, y1, z1 = x2, y2, z2
+            self.set(linkNum, 'length', round(length, 3))
+        elif self.get(linkNum, 'length') == 0:
+            length = round(_sqrt((self.get(linkNum, 'to')[0] -
+                           self.get(linkNum, 'from')[0])**2 +
+                           (self.get(linkNum, 'to'[1] - self.get(linkNum,
+                            'from')[1])**2), 3))
+            self.set(linkNum, 'length', length)
+
     def _readSection(self, line):
-        if line[0] == 'LINK':
-            # Link number is dictionary key
-            self.data[line[1]] = {}
-            self.curr_data = self.data[line[1]]
-            self.curr_data['link'] = line[1]
-            self.curr_data['name'] = line[3]
-            self.curr_data['label'] = [line[5], line[6]]
-            self.over = False
-        elif line[0] == 'BEHAVIORTYPE':
-            self.curr_data['behaviortype'] = line[1]
-            self.curr_data['displaytype'] = line[3]
-        elif line[0] == 'LENGTH':
-            self.curr_data['length'] = line[1]
-            self.curr_data['lanes'] = line[3]
-            self.curr_data['lane_width'] = []
-            count = 4
-            if int(line[3]) > 1:
-                for i in range(int(line[3])):
-                    self.curr_data['lane_width'].append(line[5+i])
-                    count += 1
+        if _match('^LINK', line):
+            linkNum = (self.types['link'](_findall('LINK\s+(\d+)', line)[0]))
+            self.currData = {'link': linkNum}
+            self.currData['name'] = _findall('NAME\s+(".+"|"")', line)[0]
+            self.currData['label'] = (_findall(
+                                      'LABEL\s+(-?\d+.\d+)\s(-?\d+.\d+)',
+                                      line)[0])
+        elif _match('^\s+BEHAVIORTYPE', line):
+            self.currData['behaviortype'] = _findall('BEHAVIORTYPE\s+(\d+)',
+                                                     line)[0]
+            self.currData['displaytype'] = _findall('DISPLAYTYPE\s+(\d+)',
+                                                    line)[0]
+        elif _match('^\s+LENGTH', line):
+            self.currData['length'] = _findall('LENGTH\s+(\d+.\d+)', line)[0]
+            self.currData['lanes'] = _findall('LANES\s+(\d)', line)[0]
+            width = _findall('LANE_WIDTH\s+(.+)\s+GRADIENT', line)[0]
+            self.currData['lane_width'] = _split('\s+', width)
+            self.currData['gradient'] = _findall('GRADIENT\s+(-?\d+.\d+)',
+                                                 line)[0]
+            self.currData['cost'] = _findall('COST\s+(\d+.\d+)', line)[0]
+            self.currData['surcharges'] = _findall('SURCHARGE\s+(\d+.\d+)',
+                                                   line)
+            self.currData['segment_length'] = (_findall(
+                                               'SEGMENT LENGTH\s+(\d+.\d+)',
+                                               line)[0])
+            if _search('EVALUATION', line):
+                self.currData['evaluation'] = True
             else:
-                self.curr_data['lane_width'] = [line[5]]
-                count += 1
-            self.curr_data['gradient'] = line[count+2]
-            self.curr_data['cost'] = line[count+4]
-            self.curr_data['surcharge1'] = line[count+6]
-            self.curr_data['segment_length'] = line[count+11]
-            if line[-1] == 'EVALUATION':
-                self.curr_data['evaluation'] = ' EVALUATION'
-            else:
-                self.curr_data['evaluation'] = ''
-        elif line[0] == 'FROM':
-            self.curr_data['from'] = (float(line[1]), float(line[2]))
-        elif line[0] == 'OVER' and self.over is False:
-            self.curr_data['over'] = []
-            size = int(len(line)/float(4))
-            for coord in range(size):
-                x = float(line[(4*coord)+1])
-                y = float(line[(4*coord)+2])
-                self.curr_data['over'].append((x, y))
-            self.over = True
-        elif line[0] == 'OVER' and self.over is True:
-            size = int(len(line)/float(4))
-            for coord in range(size):
-                x = float(line[(4*coord)+1])
-                y = float(line[(4*coord)+2])
-                self.curr_data['over'].append((x, y))
-        elif line[0] == 'TO':
-            self.curr_data['to'] = (float(line[1]), float(line[2]))
-        elif line[0] == 'CLOSED':
-            self.curr_data['closed'] = {}
-        elif 'closed' in self.curr_data and line[0] == 'LANE':
-            lane = line[1]
-            veh_classes = line[3:]
-            self.curr_data['closed'][lane] = veh_classes
+                self.currData['evaluation'] = False
+        elif _match('^\s+FROM', line):
+            self.currData['from'] = _findall('(-?\d+.\d+)', line)
+        elif _match('^\s+OVER', line):
+            if 'over' not in self.currData:
+                self.currData['over'] = []
+            self.currData['over'] += _findall('OVER (-?\d+.\d+) (-?\d+.\d+) (-?\d+.\d+)', line)
+        elif _match('^\s+TO', line):
+            self.currData['to'] = _findall('(-?\d+.\d+)', line)
+            self.create(self.currData['from'], self.currData['to'], **self.currData)
+        elif _match('^\s+CLOSED', line):
+            self.currData['closed'] = {}
+        elif 'closed' in self.currData and _match('^LANE', line):
+            lane = _findall('^LANE\s+(\d+)', line)
+            veh_classes = _findall('VEHICLE_CLASSES (.+)', line)
+            self.currData['closed'][lane] = _split('\s', veh_classes)
+            self.set(self.currData['link'], 'closed', self.currData['closed'])
         else:
             print 'Non-link data provided: %s' % line
 
-    def __output(self, links):
+    def _output(self, links):
         """ Outputs Links syntax to VISSIM.
 
         Input: A single links dictionary
         Output: Route decisions back into VISSIM syntax
         """
-        vissim_out = []
-        vissim_out.append('LINK ' + str(links['link']).rjust(6) + ' NAME ' +
-                          links['name'] + ' LABEL ' + links['label'][0] + ' ' +
-                          links['label'][1])
-        vissim_out.append('BEHAVIORTYPE '.rjust(15) + links['behaviortype'].
-                          rjust(5) + ' DISPLAYTYPE' + links['displaytype'].
-                          rjust(5))
-        lane_width_str = ''
-        if len(links['lane_width']) > 1:
-            for width in links['lane_width']:
-                lane_width_str += width.rjust(5)
-        else:
-            lane_width_str = links['lane_width'][0].rjust(5)
-        vissim_out.append('LENGTH '.rjust(9) + str(links['length']).rjust(8) +
-                          ' LANES ' + links['lanes'].rjust(2) + ' LANE_WIDTH '
-                          + lane_width_str + ' GRADIENT ' + links['gradient'].
-                          ljust(10) + ' COST ' + links['cost'].ljust(7) +
-                          ' SURCHARGE ' + links['surcharge1'] + ' SURCHARGE ' +
-                          links['surcharge1'] + ' SEGMENT LENGTH ' + links[
-                          'segment_length'].rjust(8) + links['evaluation'])
-        vissim_out.append('FROM '.rjust(7) + str(links['from'][0]) + ' ' + str(
-                          links['from'][1]))
-        if 'over' in links:
-            over_str = ' '
-            for i in links['over']:
-                over_str += ' OVER ' + str(i[0]) + ' ' + str(i[1]) + ' 0.000'
-            vissim_out.append(over_str)
-        vissim_out.append('TO '.rjust(5) + str(links['to'][0]).rjust(10) + ' '
-                          + str(links['to'][1]))
-        return vissim_out
+        vissimOut = []
+        linkNum = links['link']
 
-    def __export(self, filename):
+        def _out(label, s=True):
+            return self.get(linkNum, label, string=s)
+        vissimOut.append('LINK ' + _out('link').rjust(6) + ' NAME ' +
+                         _out('name') + ' LABEL ' +
+                         _out('label', s=False)[0] + ' ' +
+                         _out('label', s=False)[1])
+        vissimOut.append('BEHAVIORTYPE '.rjust(15) + _out('behaviortype').
+                         rjust(5) + ' DISPLAYTYPE' + _out('displaytype').
+                         rjust(5))
+        laneWidth = ''
+        if len(_out('lane_width', s=False)) > 1:
+            for width in _out('lane_width', s=False):
+                laneWidth += width.rjust(5)
+        else:
+            laneWidth = _out('lane_width', s=False)[0].rjust(5)
+        evaluation = 'EVALUATION' if _out('evaluation', s=False) else ''
+        vissimOut.append('LENGTH '.rjust(9) + _out('length').rjust(8) +
+                         ' LANES ' + _out('lanes').rjust(2) +
+                         ' LANE_WIDTH ' + laneWidth + ' GRADIENT ' +
+                         _out('gradient').ljust(10) + ' COST ' +
+                         _out('cost').ljust(7) + ' SURCHARGE ' +
+                         _out('surcharges', s=False)[0] + ' SURCHARGE ' +
+                         _out('surcharges', s=False)[1] + ' SEGMENT LENGTH ' +
+                         _out('segment_length').rjust(8) +
+                         evaluation)
+        vissimOut.append('FROM '.rjust(7) + _out('from', s=False)[0] + ' ' +
+                         _out('from', s=False)[1])
+        if _out('over', s=False):
+            overStr = ''
+            for i in _out('over', s=False):
+                overStr += '  OVER ' + i[0] + ' ' + i[1] + ' ' + i[2]
+            vissimOut.append(overStr)
+        vissimOut.append('TO '.rjust(5) + _out('to', s=False)[0].rjust(10) +
+                         ' ' + _out('to', s=False)[1])
+        return vissimOut
+
+    def export(self, filename):
         """ Prepare for export all links in a given links object
 
             Input: Links object
             Output: List of all links in VISSIM syntax
         """
         _exportSection(self, filename)
-
-    def create(self, coord_from, coord_to, **kwargs):
-        link_num = kwargs.get('link', max(self.data.keys())+1)
-        self.data[link_num] = {}
-        link = self.data[link_num]
-        link['link'] = link_num
-        link['from'] = coord_from
-        link['to'] = coord_to
-        # Default values
-        link['name'] = kwargs.get('name', '""')
-        link['behaviortype'] = kwargs.get('behaviortype', '1')
-        link['cost'] = kwargs.get('cost', '0.00000')
-        link['displaytype'] = kwargs.get('displaytype', '1')
-        link['gradient'] = kwargs.get('gradient', '0.00000')
-        link['label'] = kwargs.get('label', ['0.00', '0.00'])
-        link['lane_width'] = kwargs.get('lane_width', ['3.66'])
-        link['lanes'] = kwargs.get('lanes', '1')
-        link['segment_length'] = kwargs.get('segment_length', '10.000')
-        link['surcharge1'] = kwargs.get('surcharge1', '0.00000')
-        link['evaluation'] = kwargs.get('evaulation', '""')
-        link['over'] = kwargs.get('over', None)
-        if link['over']:
-            link['length'] = 0
-            x1, y1 = link['from']
-            for coord in link['over']:
-                x2, y2 = coord
-                dx, dy = x2-x1, y2-y1
-                link['length'] += _sqrt(dx**2 + dy**2)
-                x1, y1 = x2, y2
-            link['length'] = str(round(link['length'], 3))
-        else:
-            link['length'] = str(round(_sqrt((link['to'][0]-link['from'][0])**2
-                                 + (link['to'][1]-link['from'][1])**2), 3))
-
-    def get(self, linknum, label):
-        """ Get value from Link.
-            Input: Link number, Value label
-            Output: Value
-        """
-        return _getData(self.data, linknum, label)
-
-    def set(self, linknum, label, value):
-        """ Set value from Link.
-            Input: Link number, Value label, value
-            Output: Change is made in place
-        """
-        _setData(self.data, linknum, label, value)
 
 
 class Connector:
@@ -454,135 +472,104 @@ class Connector:
         self.filename = filename
         self.name = 'Connectors'
         self.data = {}
-        self.curr_data = None
+        self.currData = None
         self.curr_lane = None
         _importSection(self, filename)
+        self.links = Links(self.filename)
 
     def _readSection(self, line):
-        if line[0] == 'CONNECTOR':
+        if _match('^CONNECTOR', line):
             # Connector number is dictionary key
-            self.data[line[1]] = {}
-            self.curr_data = self.data[line[1]]
-            self.curr_data['connector'] = line[1]
-            self.curr_data['name'] = line[3]
-            self.curr_data['label'] = [line[5], line[6]]
-        elif line[0] == 'FROM':
-            if len(line) == 7:
-                self.curr_data['from'] = line[2]
-                self.curr_data['from_lanes'] = [line[4]]
-                self.curr_data['from_at'] = line[6]
+            conn = _findall('^CONNECTOR\s+(\d+)', line)[0]
+            self.data[conn] = {}
+            self.currData = self.data[conn]
+            self.currData['connector'] = conn
+            self.currData['name'] = _findall('NAME\s+(".+"|"")', line)[0]
+            self.currData['label'] = _findall('LABEL\s+(-?\d+.\d+)\s(-?\d+.\d+)', line)[0]
+        elif _match('^\s+FROM', line):
+            self.currData['from'] = _findall('LINK\s+(\d+)', line)[0]
+            lanes = _findall('LANES\s(.+)\sAT', line)[0]
+            self.currData['from_lanes'] = _split('\s+', lanes)
+            self.currData['from_at'] = _findall('AT\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+OVER', line):
+            if 'over' not in self.currData:
+                self.currData['over'] = []
+            self.currData['over'] += _findall('OVER (-?\d+.\d+) (-?\d+.\d+) (-?\d+.\d+)', line)
+        elif _match('^\s+TO', line):
+            self.currData['to'] = _findall('LINK\s+(\d+)', line)[0]
+            lanes = _findall('LANES\s(.+)\sAT', line)[0]
+            self.currData['to_lanes'] = _split('\s+', lanes)
+            self.currData['to_at'] = _findall('AT\s+(\d+.\d+)', line)[0]
+            self.currData['behaviortype'] = _findall('BEHAVIORTYPE\s+(\d+)', line)[0]
+            self.currData['displaytype'] = _findall('DISPLAYTYPE\s+(\d+)', line)[0]
+        elif _match('^\s+DX_EMERG_STOP', line):
+            self.currData['dx_emerg_stop'] = _findall('DX_EMERG_STOP\s+(\d+.\d+)', line)[0]
+            self.currData['dx_lane_change'] = _findall('DX_LANE_CHANGE\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+GRADIENT', line):
+            self.currData['gradient'] = _findall('GRADIENT\s+(-?\d+.\d+)',
+                                                  line)[0]
+            self.currData['cost'] = _findall('COST\s+(\d+.\d+)', line)[0]
+            self.currData['surcharges'] = _findall('SURCHARGE\s+(\d+.\d+)',
+                                                    line)
+        elif _match('^\s+SEGMENT', line):
+            self.currData['segment_length'] = _findall('LENGTH\s+(\d+.\d+)',
+                                                        line)[0]
+            if _search('NONE ANIMATION', line):
+                self.currData['visualization'] = False
             else:
-                lane_num = len(line) - 7
-                self.curr_data['from'] = line[2]
-                self.curr_data['from_lanes'] = [line[4]]
-                for lanes in range(1, lane_num+1):
-                    self.curr_data['from_lanes'].append(line[4+lanes])
-                self.curr_data['from_at'] = line[6+lane_num]
-        elif line[0] == 'OVER':
-            self.curr_data['over'] = self.curr_data.get('over', [])
-            overs = len(line)/4
-            for num in range(overs):
-                self.curr_data['over'].append((line[(num*4)+1],
-                                              line[(num*4)+2]))
-        elif line[0] == 'TO':
-            if len(line) == 12:
-                self.curr_data['to'] = line[2]
-                self.curr_data['to_lanes'] = [line[4]]
-                self.curr_data['to_at'] = line[6]
-                self.curr_data['behaviortype'] = line[8]
-                self.curr_data['displaytype'] = line[10]
-            else:
-                lane_num = len(line) - 12
-                self.curr_data['to'] = line[2]
-                self.curr_data['to_lanes'] = [line[4]]
-                for lanes in range(1, lane_num+1):
-                    self.curr_data['to_lanes'].append(line[4+lanes])
-                self.curr_data['to_at'] = line[6+lane_num]
-                self.curr_data['behaviortype'] = line[8+lane_num]
-                self.curr_data['displaytype'] = line[10+lane_num]
-        elif line[0] == 'DX_EMERG_STOP':
-            self.curr_data['dx_emerg_stop'] = line[1]
-            self.curr_data['dx_lane_change'] = line[3]
-        elif line[0] == 'GRADIENT':
-            self.curr_data['gradient'] = line[1]
-            self.curr_data['cost'] = line[3]
-            self.curr_data['surcharge1'] = line[5]
-            self.curr_data['surcharge2'] = line[7]
-        elif line[0] == 'SEGMENT':
-            self.curr_data['segment_length'] = line[2]
-            if line[3] == 'NONE':
-                self.curr_data['visualization'] = False
-            else:
-                self.curr_data['visualization'] = True
-        elif line[0] == 'NOLANECHANGE':
-            self.curr_data['nolanechange'] = {}
-            for i, j in enumerate(line):
-                if j == 'LANE':
-                    self.curr_data['nolanechange'][line[i+1]] = {}
-                    self.curr_lane = self.curr_data['nolanechange'][line[i+1]]
-                elif j == 'LEFT':
-                    self.curr_lane['left'] = [v for v in
-                                              line[i+1:None if 'LANE' or
-                                                   'RIGHT' not in line[i+1:]
-                                                   else min([line[i+1:].index
-                                                            ('LANE'), line
-                                                            [i+1:].index
-                                                            ('RIGHT')])]]
-                elif j == 'RIGHT':
-                    self.curr_lane['right'] = [v for v in
-                                               line[i+1:None if 'LANE' or
-                                                    'LEFT' not in line[i+1:]
-                                                    else min([line[i+1:].
-                                                              index('LANE'),
-                                                              line[i+1:].index
-                                                              ('LEFT')])]]
+                self.currData['visualization'] = True
+        elif _search('NOLANECHANGE', line):
+            self.currData['nolanechange'] = {}
+            lanes = _findall('LANE\s+(\d+) (\w+) (\w+)', line)
+            for lane, o, d in lanes:
+                self.currData['nolanechange'][lane] = {'from': o, 'to': d}
         else:
             print 'Non-connector data provided: %s' % line
 
-    def __output(self, connector):
+    def _output(self, connector):
         """ Outputs connector syntax to VISSIM.
 
         Input: A single connector dictionary
         Output: connector back into VISSIM syntax
         """
-        vissim_out = []
-        vissim_out.append('CONNECTOR ' + str(connector['connector']) + ' NAME '
-                          + connector['name'] + ' LABEL ' + connector['label']
-                          [0] + ' ' + connector['label'][1])
+        vissimOut = []
+        vissimOut.append('CONNECTOR ' + str(connector['connector']) +
+                          ' NAME ' + connector['name'] + ' LABEL ' +
+                          connector['label'][0] + ' ' + connector['label'][1])
         from_lanes_str = ''
         for i in connector['from_lanes']:
             from_lanes_str += i + ' '
-        vissim_out.append('FROM LINK '.rjust(12) + str(connector['from']) +
+        vissimOut.append('FROM LINK '.rjust(12) + str(connector['from']) +
                           ' LANES ' + from_lanes_str + 'AT ' + connector
                           ['from_at'])
         over_str = ''
         for i in connector['over']:
-            over_str += 'OVER ' + str(i[0]) + ' ' + str(i[1]) + ' 0.000 '
-        vissim_out.append('  ' + over_str)
+            over_str += '  OVER ' + i[0] + ' ' + i[1] + ' ' + i[2]
+        vissimOut.append(over_str)
         to_lanes_str = ''
         for i in connector['to_lanes']:
             to_lanes_str += i + ' '
-        vissim_out.append('TO LINK '.rjust(10) + str(connector['to']) +
+        vissimOut.append('TO LINK '.rjust(10) + str(connector['to']) +
                           ' LANES '.rjust(7) + to_lanes_str + 'AT ' + connector
                           ['to_at'].ljust(6) + ' BEHAVIORTYPE ' + connector
                           ['behaviortype'] + ' DISPLAYTYPE ' + connector
                           ['displaytype'] + ' ALL')
-        vissim_out.append('DX_EMERG_STOP '.rjust(16) + connector
+        vissimOut.append('DX_EMERG_STOP '.rjust(16) + connector
                           ['dx_emerg_stop'] + ' DX_LANE_CHANGE ' + connector
                           ['dx_lane_change'])
-        vissim_out.append('GRADIENT '.rjust(11) + connector['gradient'] +
+        vissimOut.append('GRADIENT '.rjust(11) + connector['gradient'] +
                           ' COST ' + connector['cost'] + ' SURCHARGE ' +
-                          connector['surcharge1'] + ' SURCHARGE ' + connector
-                          ['surcharge2'])
-        if connector['visualization'] == False:
-            vissim_out.append('SEGMENT LENGTH '.rjust(17) + connector
+                          connector['surcharges'][0] + ' SURCHARGE ' +
+                          connector['surcharges'][1])
+        if connector['visualization'] is False:
+            vissimOut.append('SEGMENT LENGTH '.rjust(17) + connector
                               ['segment_length'] + ' NONE ANIMATION')
         else:
-            vissim_out.append('SEGMENT LENGTH '.rjust(17) + connector
+            vissimOut.append('SEGMENT LENGTH '.rjust(17) + connector
                               ['segment_length'] + ' ANIMATION')
-        return vissim_out
+        return vissimOut
 
-    def __export(self, filename):
+    def export(self, filename):
         """ Prepare for export all connector lots in a given connector object
 
             Input: connector object
@@ -591,34 +578,33 @@ class Connector:
         _exportSection(self, filename)
 
     def create(self, from_link, to_link, **kwargs):
-        connector_num = str(kwargs.get('num', max(self.data.keys() or [0])+1))
+        connector_num = str(self.data.get('num', max(self.data.keys()) + 1))
         self.data[connector_num] = {}
         connector = self.data[connector_num]
         connector['connector'] = connector_num
         connector['from'] = from_link
         connector['to'] = to_link
         # Default values
-        connector['label'] = kwargs.get('label', ['0.00', '0.00'])
+        connector['label'] = kwargs.get('label', ('0.00', '0.00'))
         connector['from_lanes'] = kwargs.get('from_lanes', '1')
-        connector['from_at'] = kwargs.get('from_at', self.data[from_link]
-                                          ['length'])
+        connector['from_at'] = kwargs.get('from_at', self.links.get(from_link,
+                                          'length'))
         # Calculate default spline points between from link and to link:
-        over1 = self.data[from_link]['to']
-        over4 = self.data[to_link]['from']
+        over1 = self.links.get(from_link, 'to').append('0.000')
+        over4 = self.links.get(to_link, 'from').append('0.000')
         if over4[0] == over1[0] and over4[1] == over1[1]:
-            over1 = (self.data[from_link]['to'][0], self.data[from_link]['to']
-                     [1]+0.001)
-            over2 = (over4[0]+0.001, over4[1])
-            over3 = (_median([over2[0], over4[0]]), _median([over2[1],
-                     over4[1]]))
+            over1[1] = str(float(over1[1]) + 0.001)
+            over2 = [str(float(over4[0]) + 0.001), over4[1], over4[2]]
+            over3 = [str(_median([over2[0], over4[0]])), str(_median([over2[1],
+                     over4[1]])), str(_median([over2[2], over4[2]]))]
         else:
-            over2 = (_median([over4[0], over1[0]]), _median([over4[1],
-                     over1[1]]))
-            over3 = (_median([over2[0], over4[0]]), _median([over2[1],
-                     over4[1]]))
+            over2 = [str(_median([over4[0], over1[0]])), str(_median([over4[1],
+                     over1[1]])), str(_median([over4[2], over1[2]]))]
+            over3 = [str(_median([over2[0], over4[0]])), str(_median([over2[1],
+                     over4[1]])), str(_median([over2[2], over4[2]]))]
         connector['over'] = kwargs.get('over', [over1, over2, over3, over4])
         connector['name'] = kwargs.get('name', '""')
-        connector['to_lanes'] = kwargs.get('to_lanes', '1')
+        connector['to_lanes'] = kwargs.get('to_lanes', ['1'])
         connector['to_at'] = kwargs.get('to_at', '0.000')
         connector['behaviortype'] = kwargs.get('behaviortype', '1')
         connector['displaytype'] = kwargs.get('displaytype', '1')
@@ -626,8 +612,8 @@ class Connector:
         connector['dx_lane_change'] = kwargs.get('dx_lane_change', '200.010')
         connector['gradient'] = kwargs.get('gradient', '0.00000')
         connector['cost'] = kwargs.get('cost', '0.00000')
-        connector['surcharge1'] = kwargs.get('surcharge1', '0.00000')
-        connector['surcharge2'] = kwargs.get('surcharge2', '0.00000')
+        connector['surcharges'] = kwargs.get('surcharges',
+                                             ['0.00000', '0.00000'])
         connector['segment_length'] = kwargs.get('segment_length', '10.000')
         connector['visualization'] = kwargs.get('visualization', True)
 
@@ -636,14 +622,14 @@ class Connector:
             Input: Connector number, Value label
             Output: Value
         """
-        return _getData(self.data, linknum, label)
+        return _getData(self.data, connnum, label)
 
     def set(self, connnum, label, value):
         """ Set value from Connector.
             Input: Connector number, Value label, value
             Output: Change is made in place
         """
-        _setData(self.data, linknum, label, value)
+        _setData(self.data, connnum, label, value)
 
 
 class Parking:
@@ -653,89 +639,97 @@ class Parking:
         self.filename = filename
         self.name = 'Parking Lots'
         self.data = {}
-        self.curr_data = None
+        self.currData = None
         _importSection(self, filename)
 
     def _readSection(self, line):
-        if line[0] == 'PARKING_LOT':
-            # Parking lot number is dict key
-            self.data[line[1]] = {}
-            self.curr_data = self.data[line[1]]
-            self.curr_data['parking'] = line[1]
-            self.curr_data['name'] = line[3]
-            self.curr_data['label'] = [line[5], line[6]]
-        elif line[0] == 'PARKING_SPACES':
-            self.curr_data['spaces_length'] = line[2]
-        elif line[0] == 'ZONES':
-            self.curr_data['zones'] = line[1]
-            self.curr_data['fraction'] = line[3]
-        elif line[0] == 'POSITION':
-            self.curr_data['position_link'] = line[2]
-            if len(line) == 7:
-                self.curr_data['lane'] = line[4]
-                self.curr_data['at'] = line[6]
-            elif len(line) == 5:
-                self.curr_data['at'] = line[4]
-        elif line[0] == 'LENGTH':
-            self.curr_data['length'] = line[1]
-        elif line[0] == 'CAPACITY':
-            self.curr_data['capacity'] = line[1]
-        elif line[0] == 'OCCUPANCY':
-            self.curr_data['occupancy'] = line[1]
-        elif line[0] == 'DEFAULT':
-            self.curr_data['desired_speed'] = line[2]
-        elif line[0] == 'OPEN_HOURS':
-            self.curr_data['open_hours'] = (line[2], line[4])
-        elif line[0] == 'MAX_TIME':
-            self.curr_data['max_time'] = line[1]
-        elif line[0] == 'FLAT_FEE':
-            self.curr_data['flat_fee'] = line[1]
-        elif line[0] == 'FEE_PER_HOUR':
-            self.curr_data['fee_per_hour'] = line[1]
-        elif line[0] == 'ATTRACTION':
-            self.curr_data['attraction'] = line[1]
-        elif line[0] == 'COMPOSITION':
-            self.curr_data['composition'] = line[1]
+        if _match('^\s+PARKING_LOT', line):
+            # Parking lot number is dictionary key
+            parking = _findall('PARKING_LOT\s+(\d+)')[0]
+            self.data[parking] = {}
+            self.currData = self.data[parking]
+            self.currData['parking'] = parking
+            self.currData['name'] = _findall('NAME\s+(".+"|"")', line)[0]
+            self.currData['label'] = _findall('LABEL\s+(-?\d+.\d+)\s(-?\d+.\d+)', line)[0]
+        elif _match('^\s+PARKING_SPACES', line):
+            self.currData['spaces_length'] = _findall('LENGTH\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+ZONES', line):
+            self.currData['zones'] = _findall('ZONES\s+(\d+)', line)[0]
+            self.currData['fraction'] = _findall('FRACTION\s+(\d+.\d+), line')[0]
+        elif _match('^\s+POSITION', line):
+            self.currData['position_link'] = _findall('POSITION LINK\s+(\d+)', line)[0]
+            self.currData['at'] = _findall('AT\s+(\d+.\d+)', line)[0]
+            if _match('POSITION LINK \d+ LANE \d+', line):
+                self.currData['lane'] = _findall('LANE (\d+)', line)[0]
+        elif _match('^\s+LENGTH', line):
+            self.currData['length'] = _findall('LENGTH\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+CAPACITY', line):
+            self.currData['capacity'] = _findall('CAPACITY\s+(\d+)', line)[0]
+        elif _match('^\s+OCCUPANCY', line):
+            self.currData['occupancy'] = _findall('OCCUPANCY\s+(\d+)', line)[0]
+        elif _match('^\s+DEFAULT', line):
+            self.currData['desired_speed'] = _findall('DESIRED_SPEED\s+(\d+)', line)[0]
+        elif _match('^\s+OPEN_HOURS', line):
+            self.currData['open_hours'] = _findall('FROM\s+(\d+)\s+UNTIL\s+(\d+)', line)
+        elif _match('^\s+MAX_TIME', line):
+            self.currData['max_time'] = _findall('MAX_TIME\s+(\d+)', line)[0]
+        elif _match('^\s+FLAT_FEE', line):
+            self.currData['flat_fee'] = _findall('FLAT_FEE\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+FEE_PER_HOUR', line):
+            self.currData['fee_per_hour'] = _findall('FEE_PER_HOUR\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+ATTRACTION', line):
+            if 'spaces_length' in self.currData:
+                self.currData['attraction'] = _findall('ATTRACTION\s+(\d+.\d+)\s(\d+.\d+)', line)
+            else:
+                self.currData['attraction'] = _findall('ATTRACTION\s+(\d+.\d+)', line)
+        elif _match('^\s+COMPOSITION', line):
+            self.currData['composition'] = _findall('COMPOSITION\s+(\d+)', line)[0]
         else:
             print 'Non-parking data provided: %s' % line
 
-    def __output(self, parking):
+    def _output(self, parking):
         """ Outputs Parking syntax to VISSIM.
 
         Input: A single parking dictionary
         Output: Parking back into VISSIM syntax
         """
-        vissim_out = []
-        vissim_out.append('PARKING_LOT ' + str(parking['parking']) + ' NAME ' +
+        vissimOut = []
+        vissimOut.append('PARKING_LOT ' + str(parking['parking']) + ' NAME ' +
                           parking['name'] + ' LABEL ' + parking['label'][0] +
                           ' ' + parking['label'][1])
         if 'spaces_length' in parking:
-            vissim_out.append('PARKING_SPACES LENGTH '.rjust(24) + parking
+            vissimOut.append('PARKING_SPACES LENGTH '.rjust(24) + parking
                               ['spaces_length'])
-        vissim_out.append('ZONES '.rjust(8) + parking['zones'].rjust(6) +
+        vissimOut.append('ZONES '.rjust(8) + parking['zones'].rjust(6) +
                           ' FRACTION ' + parking['fraction'].rjust(7))
         if 'lane' in parking:
-            vissim_out.append('POSITION LINK '.rjust(16) + str(parking[
+            vissimOut.append('POSITION LINK '.rjust(16) + str(parking[
                               'position_link']) + ' LANE ' + str(parking
                               ['lane']) + ' AT ' + str(parking['at']))
         else:
-            vissim_out.append('POSITION LINK '.rjust(16) + str(parking
+            vissimOut.append('POSITION LINK '.rjust(16) + str(parking
                               ['position_link']) + ' AT ' + str(parking['at']))
-        vissim_out.append('LENGTH '.rjust(9) + str(parking['length']).rjust(9))
-        vissim_out.append('CAPACITY   '.rjust(13) + parking['capacity'])
-        vissim_out.append('OCCUPANCY '.rjust(12) + parking['occupancy'])
-        vissim_out.append('DEFAULT DESIRED_SPEED '.rjust(24) + parking
+        vissimOut.append('LENGTH '.rjust(9) + str(parking['length']).rjust(9))
+        vissimOut.append('CAPACITY   '.rjust(13) + parking['capacity'])
+        vissimOut.append('OCCUPANCY '.rjust(12) + parking['occupancy'])
+        vissimOut.append('DEFAULT DESIRED_SPEED '.rjust(24) + parking
                           ['desired_speed'])
-        vissim_out.append('OPEN_HOURS  FROM '.rjust(19) + parking['open_hours']
+        vissimOut.append('OPEN_HOURS  FROM '.rjust(19) + parking['open_hours']
                           [0].ljust(2) + ' UNTIL ' + parking['open_hours'][1])
-        vissim_out.append('MAX_TIME '.rjust(11) + parking['max_time'])
-        vissim_out.append('FLAT_FEE '.rjust(11) + parking['flat_fee'])
-        vissim_out.append('FEE_PER_HOUR '.rjust(15) + parking['fee_per_hour'])
-        vissim_out.append('ATTRACTION '.rjust(13) + parking['attraction'])
+        vissimOut.append('MAX_TIME '.rjust(11) + parking['max_time'])
+        vissimOut.append('FLAT_FEE '.rjust(11) + parking['flat_fee'])
+        vissimOut.append('FEE_PER_HOUR '.rjust(15) + parking['fee_per_hour'])
+        if len(parking['attraction']) > 1:
+            vissimOut.append('ATTRACTION '.rjust(13) +
+                              parking['attraction'][0] + ' ' +
+                              parking['attraction'][1])
+        else:
+            vissimOut.append('ATTRACTION '.rjust(13) +
+                              parking['attraction'][0])
         if 'composition' in parking:
-            vissim_out.append('COMPOSITION '.rjust(14) + parking
+            vissimOut.append('COMPOSITION '.rjust(14) + parking
                               ['composition'])
-        return vissim_out
+        return vissimOut
 
     def __export(self, filename):
         """ Prepare for export all parking lots in a given parking object
@@ -778,7 +772,7 @@ class Transit:
         self.filename = filename
         self.name = 'Public Transport'
         self.data = {}
-        self.curr_data = None
+        self.currData = None
         _importSection(self, filename)
 
     def _readSection(self, line):
@@ -787,63 +781,63 @@ class Transit:
         if line[0] == "LINE":
             # Dictionary key is the line number
             self.data[line[1]] = {}
-            self.curr_data = self.data[line[1]]
-            self.curr_data['line'] = line[1]
-            self.curr_data['name'] = line[3]
-            self.curr_data['route'] = line[7]
-            self.curr_data['priority'] = line[9]
-            self.curr_data['length'] = line[11]
-            self.curr_data['mdn'] = line[13]
+            self.currData = self.data[line[1]]
+            self.currData['line'] = line[1]
+            self.currData['name'] = line[3]
+            self.currData['route'] = line[7]
+            self.currData['priority'] = line[9]
+            self.currData['length'] = line[11]
+            self.currData['mdn'] = line[13]
             if len(line) == 14:
-                self.curr_data['pt'] = True
+                self.currData['pt'] = True
         elif line[0] == "ANM_ID":
-            self.curr_data['link'] = line[4]
-            self.curr_data['desired_speed'] = line[6]
-            self.curr_data['vehicle_type'] = line[8]
+            self.currData['link'] = line[4]
+            self.currData['desired_speed'] = line[6]
+            self.currData['vehicle_type'] = line[8]
         elif line[0] == "COLOR":
-            self.curr_data['color'] = line[1]
-            self.curr_data['time_offset'] = line[3]
+            self.currData['color'] = line[1]
+            self.currData['time_offset'] = line[3]
         elif line[0] == "DESTINATION":
-            self.curr_data['destination_link'] = line[2]
-            self.curr_data['at'] = line[4]
+            self.currData['destination_link'] = line[2]
+            self.currData['at'] = line[4]
         elif line[0] == "START_TIMES":
-            self.curr_data['start_times'] = []
+            self.currData['start_times'] = []
             num = (len(line)-1)/5
             for i in range(num):
-                self.curr_data['start_times'].append([line[1+(5*i)], line
+                self.currData['start_times'].append([line[1+(5*i)], line
                                                      [3+(5*i)], line[5+(5*i)]])
         elif line[1] == "COURSE":
             num = (len(line)/5)
             for i in range(num):
-                self.curr_data['start_times'].append([line[(5*i)], line
+                self.currData['start_times'].append([line[(5*i)], line
                                                      [2+(5*i)], line[4+(5*i)]])
         else:
             print 'Non-transit data provided: %s' % line
 
-    def __output(self, transit):
+    def _output(self, transit):
         """ Outputs transit Decision syntax to VISSIM.
 
         Input: A single transit decision dictionary
         Output: transit decisions back into VISSIM syntax
         """
-        vissim_out = []
+        vissimOut = []
         pt = ''
         if transit['pt'] == True:
             pt = ' PT_TELE'
-        vissim_out.append(str('LINE ' + transit['line'].rjust(4) + ' NAME ' +
+        vissimOut.append(str('LINE ' + transit['line'].rjust(4) + ' NAME ' +
                               transit['name'] + '  LINE ' + transit['line'].
                               rjust(3) + '  ROUTE ' + transit['route'].rjust(3)
                               + '    PRIORITY ' + transit['priority'] +
                               '  LENGTH ' + transit['length'] + '  MDN ' +
                               transit['mdn']) + pt + '\n')
-        vissim_out.append(str('ANM_ID '.rjust(12) + transit['anm'] +
+        vissimOut.append(str('ANM_ID '.rjust(12) + transit['anm'] +
                               ' SOURCE    LINK ' + transit['link'] +
                               ' DESIRED_SPEED ' + transit['desired_speed'] +
                               ' VEHICLE_TYPE ' + transit['vehicle_type']))
-        vissim_out.append(str('COLOR '.rjust(24) + transit['color'] +
+        vissimOut.append(str('COLOR '.rjust(24) + transit['color'] +
                               ' TIME_OFFSET ' + transit['time_offset'].
                               rjust(6)))
-        vissim_out.append(str('DESTINATION    LINK '.rjust(32) + transit
+        vissimOut.append(str('DESTINATION    LINK '.rjust(32) + transit
                               ['destination_link'] + ' AT ' + transit['at'].
                               rjust(8)))
         time_str = 'START_TIMES '.rjust(24)
@@ -855,10 +849,10 @@ class Transit:
                 time_str += '\n'
             count += 1
         if len(transit['start_times']) > 0:
-            vissim_out.append(time_str)
-        return vissim_out
+            vissimOut.append(time_str)
+        return vissimOut
 
-    def __export(self, filename):
+    def export(self, filename):
         """ Prepare for export all transit routes in a given transit object
 
             Input: transit object
@@ -897,152 +891,90 @@ class Routing:
         self.filename = filename
         self.name = 'Routing Decisions'
         self.data = {}
-        self.curr_data = None
-        self.time_periods = None
-        self.destination_link = None
-        self.at_link = None
-        self.curr_route_num = None
-        self.curr_route = None
+        self.currData = None
+        self.destinationLink = None
+        self.atLink = None
+        self.currRouteNum = None
+        self.currRoute = None
         self.over = None
+        self.types = {'name': str, 'route': dict, 'number': int,
+                      'label': tuple, 'link': int, 'at': float, 'time': list,
+                      'vehicle_classes': int, 'PT': int, 'alternatives': bool}
         _importSection(self, filename)
 
     class Route:
         """ Individual routes within a given Route Decisions
         """
-        def __init__(self, route_num, destination_link, at_link, fraction):
+        def __init__(self, routeNum, destinationLink, atLink, fraction):
             self.name = 'Route'
-            self.data = {'number': route_num, 'link': destination_link,
-                         'at': at_link, 'fraction': fraction}
+            self.number = routeNum
+            self.types = {'at': float, 'fraction': list, 'link': int,
+                          'number': int, 'over': list}
+            self.data = {'number': self.types['number'](routeNum),
+                         'link': self.types['link'](destinationLink),
+                         'at': self.types['at'](atLink),
+                         'fraction': self.types['fraction'](fraction)}
 
-        def __output(self):
-            """ Outputs Route syntax to VISSIM.
-            """
-            route = self.data
-            vissim_out = []
-            vissim_out.append('ROUTE '.rjust(11) + route['number'].rjust(6) +
-                              ' DESTINATION LINK' + route['link'].rjust(6) +
-                              ' AT' + route['at'].rjust(9))
-            fraction_str = ''
-            for j in route['fraction']:
-                fraction_str += 'FRACTION '.rjust(16) + j
-            vissim_out.append(fraction_str)
-            # Sometimes the route ends on the same link it began:
-            if 'over' in route:
-                return vissim_out
-            else:
-                for count, j in enumerate(route['over']):
-                    if count == 0:
-                        over_str = 'OVER '.rjust(11)
-                        over_str += j.rjust(6)
-                    elif count == len(route['over']) - 1:
-                        over_str += j.rjust(6)
-                        vissim_out.append(over_str)
-                        break
-                    elif (count + 1 % 10) == 0:
-                        over_str += j.rjust(6)
-                        vissim_out.append(over_str)
-                        over_str = ' '*11
-                    else:
-                        over_str += j.rjust(6)
-                    if len(route['over']) == 1:
-                        vissim_out.append(over_str)
-                return vissim_out
-
-        def get(self, routenum, label):
+        def get(self, label, string=True):
             """ Get value from Route.
                 Input: Route number, Value label
                 Output: Value
             """
-            return _getData(self.data, routenum, label)
+            if string:
+                return str(_getData(self, None, label))
+            else:
+                return _getData(self, None, label)
 
-        def set(self, routenum, label, value):
+        def set(self, label, value):
             """ Set value from Route.
                 Input: Route number, Value label, value
                 Output: Change is made in place
             """
-            _setData(self.data, routenum, label, value)
+            _setData(self, None, label, value)
 
-    def _readSection(self, line):
-        """ Process the Route Decision section of the INP file
-        """
-        if line[0] == "ROUTING_DECISION":
-            # Reset from previous routes
-            self.curr_route = None
-            self.over = False
-            # Routing decision number is dict key
-            self.data[line[1]] = {'route': {}}
-            self.curr_data = self.data[line[1]]
-            self.curr_data['number'] = line[1]
-            self.curr_data['name'] = line[3]
-            self.curr_data['label'] = [line[5], line[6]]
-        elif line[0] == "LINK":
-            self.curr_data['link'] = line[1]
-            self.curr_data['at'] = line[3]
-        elif line[0] == "TIME":
-            self.time_periods = (len(line)-1)/4
-            self.curr_data['time'] = []
-            for i in range(self.time_periods):
-                start = line[2+(4*i)]
-                end = line[4+(4*i)]
-                self.curr_data['time'].append((start, end))
-        elif line[0] == "VEHICLE_CLASSES":
-            self.curr_data['vehicle_classes'] = line[1]
-        elif line[0] == "PT":
-            self.curr_data['PT'] = line[1]
-        elif line[0] == "ALTERNATIVES":
-            self.curr_data['alternatives'] = True
-        elif line[0] == "ROUTE":
-            # Reset the variables from previous route
-            self.over = False
-            self.curr_route_num = line[1]
-            self.destination_link = line[4]
-            self.at_link = line[6]
-        elif line[0] == "FRACTION":
-            curr_fraction = []
-            for i in range(self.time_periods):
-                fraction = line[1+(i*2)]
-                curr_fraction.append(fraction)
-            self.curr_route = self.Route(self.curr_route_num,
-                                         self.destination_link, self.at_link,
-                                         curr_fraction)
-            self.curr_data['route'][self.curr_route_num] = self.curr_route
-        elif line[0] == "OVER":
-            self.over = True
-            self.curr_route.data['over'] = line[1:]
-        elif self.over is True:
-            self.curr_route.data['over'] += line
-        else:
-            print 'Non-routing data provided: %s' % line
+        def update(self, label, value, pos=None):
+            """ Update list with new value.
+                Input: label and value
+                Output: Value is appended to data
+            """
+            _updateData(self, None, label, value, pos=pos)
 
-    def __output(self, routing):
-        """ Outputs Route Decision syntax to VISSIM.
-        """
-        vissim_out = []
-        vissim_out.append(str('ROUTING_DECISION ' + routing['number'].ljust(4)
-                              + ' NAME ' + routing['name'] + ' LABEL ' +
-                              routing['label'][0] + ' ' + routing['label'][1]))
-        vissim_out.append(str('LINK '.rjust(10) + routing['link'] + 'AT '.rjust
-                              (5) + routing['at']))
-        time_str = 'TIME'.rjust(9)
-        for i in routing['time']:
-            time_str += str('  FROM ' + i[0] + ' UNTIL ' + i[1])
-        vissim_out.append(time_str)
-        if 'vehicle_classes' in routing:
-            vissim_out.append('VEHICLE_CLASSES '.rjust(21) + routing
-                              ['vehicle_classes'])
-        elif 'PT' in routing:
-            vissim_out.append('PT '.rjust(21) + routing['PT'])
-        for route in routing['route'].values():
-            vissim_out += route.output()
-        return vissim_out
+        def output(self):
+            """ Outputs Route syntax to VISSIM.
+            """
+            vissimOut = []
+            routeNum = self.data['number']
 
-    def __export(self, filename):
-        """ Prepare for export all routes in a given route object
-
-            Input: Route object
-            Output: List of all routes in VISSIM syntax
-        """
-        _exportSection(self, filename)
+            def _out(label, s=True):
+                return self.get(label, string=s)
+            vissimOut.append('ROUTE '.rjust(11) + _out('number').rjust(6) +
+                             ' DESTINATION LINK' + _out('link').rjust(6) +
+                             ' AT' + _out('at').rjust(9))
+            fractionStr = ''
+            for j in _out('fraction', s=False):
+                fractionStr += 'FRACTION '.rjust(16) + j
+            vissimOut.append(fractionStr)
+            # Sometimes the route ends on the same link it began:
+            if not _out('over', s=False):
+                return vissimOut
+            else:
+                for count, j in enumerate(_out('over', s=False)):
+                    if count == 0:
+                        overStr = 'OVER '.rjust(12)
+                        overStr += str(j)
+                    elif count == len(_out('over', s=False)) - 1:
+                        overStr += str(j).rjust(6)
+                        vissimOut.append(overStr)
+                        break
+                    elif (count + 1 % 10) == 0:
+                        overStr += str(j).rjust(6)
+                        vissimOut.append(overStr)
+                        overStr = ' ' * 11
+                    else:
+                        overStr += str(j).rjust(6)
+                    if len(_out('over', s=False)) == 1:
+                        vissimOut.append(overStr)
+                return vissimOut
 
     def getRoute(self, decnum, routenum=None):
         """ Get route objects from a given routing decision number.
@@ -1063,19 +995,132 @@ class Routing:
         else:
             return self.data[decnum]['route'][routenum]
 
-    def get(self, decnum, label):
+    def get(self, decNum, label, string=True):
         """ Get value from Routing data.
             Input: Routing decision number, Value label
             Output: Value
         """
-        return _getData(self.data, decnum, label)
+        if string:
+            return str(_getData(self, decNum, label))
+        else:
+            return _getData(self, decNum, label)
 
-    def set(self, decnum, label, value):
+    def set(self, decNum, label, value):
         """ Set value from Routing data.
             Input: Routing decision number, Value label, value
             Output: Change is made in place
         """
-        _setData(self.data, decnum, label, value)
+        _setData(self, decNum, label, value)
+
+    def update(self, decNum, label, key, value):
+        """ Update dict with new key and value.
+            Input: Routing decision number, key, value
+            Output: Change is made in place
+        """
+        _updateData(self, decNum, label, value, newKey=key)
+
+    def create(self, startLink, startAt, vehClass, **kwargs):
+        if self.data.keys():
+            num = max(self.data.keys()) + 1
+        else:
+            num = 1
+        decNum = kwargs.get('number', num)
+        self.data[decNum] = {}
+        self.set(decNum, 'number', decNum)
+        self.set(decNum, 'link', startLink)
+        self.set(decNum, 'at', startAt)
+        self.set(decNum, 'vehicle_classes', vehClass)
+        # Default values
+        self.set(decNum, 'name', kwargs.get('name', '""'))
+        self.set(decNum, 'label', kwargs.get('label', ('0.00', '0.00')))
+        self.set(decNum, 'time', kwargs.get('time', [0.0000, 99999.0000]))
+        self.set(decNum, 'route', kwargs.get('route', {}))
+        self.set(decNum, 'alternatives', kwargs.get('alternatives', False))
+
+    def _readSection(self, line):
+        """ Process the Route Decision section of the INP file
+        """
+        if _match('^ROUTING_DECISION', line):
+            # Reset from previous routes
+            self.currRoute = None
+            decNum = (self.types['number'](_findall(
+                      'ROUTING_DECISION\s+(\d+)', line)[0]))
+            # Routing decision number is dict key
+            self.currData = {'number': decNum, 'route': {}}
+            self.currData['name'] = _findall('NAME\s+(".+"|"")', line)[0]
+            self.currData['label'] = _findall('LABEL\s+(-?\d+.\d+)\s(-?\d+.\d+)', line)[0]
+        elif _match('^\s+LINK', line):
+            self.currData['link'] = _findall('LINK\s+(\d+)', line)[0]
+            self.currData['at'] = _findall('AT\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+TIME', line):
+            self.currData['time'] = _findall('FROM\s+(\d+.\d+)\s+UNTIL\s+(\d+.\d+)', line)
+        elif _match('^\s+FROM', line):
+            self.currData['time'].append(_findall('FROM\s+(\d+.\d+)\s+UNTIL\s+(\d+.\d+)', line))
+        elif _match('^\s+VEHICLE_CLASSES', line):
+            self.currData['vehicle_classes'] = _findall('VEHICLE_CLASSES\s+(\d+)', line)[0]
+            self.create(self.currData['link'], self.currData['at'], self.currData['vehicle_classes'], **self.currData)
+        elif _match('^\s+PT', line):
+            self.currData['PT'] = _findall('PT\s+(\d+)', line)[0]
+            self.set(self.currData['number'], 'PT', self.currData['PT'])
+        elif _match('^\s+ALTERNATIVES', line):
+            self.set(self.currData['number'], 'alternatives', True)
+        elif _match('^\s+ROUTE', line):
+            self.over = False
+            # Reset the variables from previous route
+            self.currRouteNum = int(_findall('ROUTE\s+(\d+)', line)[0])
+            self.destinationLink = _findall('LINK\s+(\d+)', line)[0]
+            self.atLink = _findall('AT\s+(\d+.\d+)', line)[0]
+        elif _match('^\s+FRACTION', line):
+            currFraction = _findall('FRACTION\s+(\d+.\d+)', line)
+            self.currRoute = self.Route(self.currRouteNum,
+                                        self.destinationLink, self.atLink,
+                                        currFraction)
+            self.update(self.currData['number'], 'route', self.currRouteNum,
+                        self.currRoute)
+        elif _match('^\s+OVER', line):
+            self.over = True
+            self.currRoute.set('over', _findall('(\d+)',
+                               line))
+        elif self.over is True:
+            self.currRoute.update('over', _findall('(\d+)', line))
+        else:
+            print 'Non-routing data provided: %s' % line
+
+    def _output(self, routing):
+        """ Outputs Route Decision syntax to VISSIM.
+        """
+        decNum = routing['number']
+        vissimOut = []
+
+        def _out(label, s=True):
+            return self.get(decNum, label, string=s)
+        vissimOut.append(str('ROUTING_DECISION ' + _out('number').ljust(4) +
+                             ' NAME ' + _out('name') + ' LABEL ' +
+                         _out('label', s=False)[0] + ' ' +
+                         _out('label', s=False)[1]))
+        vissimOut.append(str('LINK '.rjust(10) + _out('link') + 'AT '.rjust
+                             (5) + _out('at')))
+        timeStr = 'TIME'.rjust(9)
+        for i in _out('time', s=False):
+            timeStr += str('  FROM ' + str(i[0]) + ' UNTIL ' + str(i[1]))
+        vissimOut.append(timeStr)
+        if _out('vehicle_classes'):
+            vissimOut.append('VEHICLE_CLASSES '.rjust(21) +
+                             _out('vehicle_classes'))
+        elif _out('PT'):
+            vissimOut.append('PT '.rjust(21) + _out('PT'))
+        for route in self.get(decNum, 'route', string=False).values():
+            vissimOut += route.output()
+        return vissimOut
+
+    def export(self, filename):
+        """ Prepare for export all routes in a given route object
+
+            Input: Route object
+            Output: List of all routes in VISSIM syntax
+        """
+        _exportSection(self, filename)
+
 
 class Node:
     """ Handles Node section of .INP file.
@@ -1109,32 +1154,32 @@ class Node:
         else:
             print 'Non-node data provided: %s' % line
 
-    def __output(self, node):
+    def _output(self, node):
         """ Outputs node syntax to VISSIM.
 
         Input: A single node dictionary
         Output: node back into VISSIM syntax
         """
-        vissim_out = []
-        vissim_out.append('NODE ' + str(node['node']) + ' NAME ' + node['name']
+        vissimOut = []
+        vissimOut.append('NODE ' + str(node['node']) + ' NAME ' + node['name']
                           + ' LABEL ' + node['label'][0] + ' ' + node['label']
                           [1])
-        vissim_out.append('EVALUATION '.rjust(13) + node['evaluation'])
+        vissimOut.append('EVALUATION '.rjust(13) + node['evaluation'])
         over_str = ''
         over_count = 0
         if 'over' in node:
             for i in node['over']:
                 over_str += '  ' + str(i[0]) + ' ' + str(i[1])
                 over_count += 1
-            vissim_out.append('NETWORK_AREA '.rjust(15) + str(over_count) +
+            vissimOut.append('NETWORK_AREA '.rjust(15) + str(over_count) +
                               over_str)
         elif 'links' in node:
             for i in node['links']:
                 over_str += '\nLINK '.rjust(10) + str(i).rjust(10)
-            vissim_out.append('NETWORK_AREA'.rjust(16) + over_str)
-        return vissim_out
+            vissimOut.append('NETWORK_AREA'.rjust(16) + over_str)
+        return vissimOut
 
-    def __export(self, filename):
+    def export(self, filename):
         """ Prepare for export all node lots in a given node object
 
             Input: node object
