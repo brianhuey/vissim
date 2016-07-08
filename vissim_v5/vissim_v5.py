@@ -20,6 +20,8 @@ def _median(lst):
 
 
 def _flatten(coll):
+    """ Flatten list and convert elements to int
+    """
     if isinstance(coll, list):
         return [int(a) for i in coll for a in _flatten(i)]
     else:
@@ -90,6 +92,8 @@ def _exportSection(obj, filename):
 
 
 def _checkKeyData(obj, key, label):
+    """ Checks whether key and label exist
+    """
     if key is not None:
         if key not in obj.data:
             raise KeyError('%s not a valid key for object %s' %
@@ -124,6 +128,10 @@ def _setData(obj, key, label, value):
 
 
 def _updateData(obj, key, label, value, pos=None, newKey=None):
+    """ Updates vissim object
+        Input: object, key, label and value
+        Output: adds value to object.
+    """
     _checkKeyData(obj, key, label)
     if key is None:
         if (isinstance(obj.data[label], list) is True) and (pos is None):
@@ -144,6 +152,8 @@ def _updateData(obj, key, label, value, pos=None, newKey=None):
 
 
 def _convertType(iterable, newType):
+    """ Converts element type within iterable.
+    """
     iterType = type(iterable)
     return iterType([newType(i) for i in iterable])
 
@@ -181,19 +191,19 @@ class Inputs:
     def getInputNumByLink(self, linkNum):
         """ Get value from Input by link number
             Input: Link number
-            Output: Input number as key, time and composition as values
+            Output: List of input numbers
         """
-        if isinstance(linkNum, str) is False:
-            linkNum = str(linkNum)
-        result = {k: {'from': v['from'], 'until': v['until'], 'composition':
-                      v['composition']} for k, v in self.data.items()
-                  if v['link'] == linkNum}
+        result = [k for k, v in self.data.items() if v['link'] == linkNum]
         if len(result) == 0:
             raise KeyError('%s not in data' % (linkNum))
         else:
             return result
 
     def create(self, linkNum, demand, comp, **kwargs):
+        """ Create new Input
+            Input: link number, demand, vehicle composition
+            Output: Creates Input object
+        """
         if self.data.keys():
             num = max(self.data.keys()) + 1
         else:
@@ -273,15 +283,6 @@ class Inputs:
             Output: List of all inputs in VISSIM syntax
         """
         _exportSection(self, filename)
-
-    def updateInput(self, link, timeFrom, timeUntil, composition, demand):
-        """ Update demand values for a given link, time period and composition
-        """
-        compareDict = {'link': link, 'from': timeFrom, 'until': timeUntil,
-                       'composition': composition}
-        for inp in self.data.values():
-            if {key: inp[key] for key in compareDict.keys()} == compareDict:
-                inp['q'] = demand
 
 
 class Links:
@@ -474,8 +475,82 @@ class Connector:
         self.data = {}
         self.currData = None
         self.curr_lane = None
+        self.types = {'connector': int, 'name': str, 'label': tuple,
+                      'from': int, 'from_lanes': list, 'from_at': float,
+                      'over': list, 'to': int, 'to_lanes': list,
+                      'to_at': float, 'behavior_type': int,
+                      'display_type': int, 'dx_emerg_stop': float,
+                      'dx_lane_change': float, 'gradient': float,
+                      'cost': float, 'surcharges': list,
+                      'segment_length': float, 'animation': bool,
+                      'nolanechange': dict}
         _importSection(self, filename)
         self.links = Links(self.filename)
+
+    def get(self, connNum, label, string=True):
+        """ Get value from Connector.
+            Input: Connector number, Value label
+            Output: Value
+        """
+        if string:
+            return str(_getData(self, connNum, label))
+        else:
+            return _getData(self, connNum, label)
+
+    def set(self, connNum, label, value):
+        """ Set value from Connector.
+            Input: Connector number, Value label, value
+            Output: Change is made in place
+        """
+        _setData(self.data, connNum, label, value)
+
+    def create(self, fromLink, toLink, **kwargs):
+        if self.data.keys():
+            num = max(self.data.keys()) + 1
+        else:
+            num = 1
+        connNum = kwargs.get('connector', num)
+        self.data[connNum] = {}
+        connector = self.data[connector_num]
+        self.set(connNum, 'connector', connNum)
+        self.set(connNum, 'from', fromLink)
+        self.set(connNum, 'to', toLink)
+        # Default values
+        self.set(connNum, 'label', kwargs.get('label', ('0.00', '0.00')))
+        self.set(connNum, 'from_lanes', kwargs.get('from_lanes', 1))
+        self.set(connNum, 'from_at', kwargs.get('from_at',
+                 self.links.get(fromLink, 'length')))
+        # Calculate default spline points between from link and to link:
+        over1 = self.links.get(fromLink, 'to').append('0.000')
+        over4 = self.links.get(toLink, 'from').append('0.000')
+        if over4[0] == over1[0] and over4[1] == over1[1]:
+            over1[1] = over1[1] + 0.001
+            over2 = [over4[0] + 0.001, over4[1], over4[2]]
+            over3 = [_median([over2[0], over4[0]]), _median([over2[1],
+                     over4[1]]), _median([over2[2], over4[2]])]
+        else:
+            over2 = [_median([over4[0], over1[0]]), _median([over4[1],
+                     over1[1]]), _median([over4[2], over1[2]])]
+            over3 = [_median([over2[0], over4[0]]), _median([over2[1],
+                     over4[1]]), _median([over2[2], over4[2]])]
+        self.set(connNum, 'over', kwargs.get('over',
+                 [over1, over2, over3, over4]))
+        self.set(connNum, 'name', kwargs.get('name', '""'))
+        self.set(connNum, 'to_lanes', kwargs.get('to_lanes', ['1']))
+        self.set(connNum, 'to_at', kwargs.get('to_at', '0.000'))
+        self.set(connNum, 'behaviortype', kwargs.get('behaviortype', 1))
+        self.set(connNum, 'displaytype', kwargs.get('displaytype', 1))
+        self.set(connNum, 'dx_emerg_stop', kwargs.get('dx_emerg_stop', 4.999))
+        self.set(connNum, 'dx_lane_change', kwargs.get('dx_lane_change',
+                                                       200.010))
+        self.set(connNum, 'gradient', kwargs.get('gradient', 0.00000))
+        self.set(connNum, 'cost', kwargs.get('cost', 0.00000))
+        self.set(connNum, 'surcharges', kwargs.get('surcharges',
+                                                   ['0.00000', '0.00000']))
+        self.set(connNum, 'segment_length', kwargs.get('segment_length',
+                 10.000))
+        self.set(connNum, 'animation', kwargs.get('animation', True))
+        self.set(connNum, 'nolanechange', kwargs.get('nolanechange', None))
 
     def _readSection(self, line):
         if _match('^CONNECTOR', line):
@@ -500,24 +575,26 @@ class Connector:
             lanes = _findall('LANES\s(.+)\sAT', line)[0]
             self.currData['to_lanes'] = _split('\s+', lanes)
             self.currData['to_at'] = _findall('AT\s+(\d+.\d+)', line)[0]
-            self.currData['behaviortype'] = _findall('BEHAVIORTYPE\s+(\d+)', line)[0]
-            self.currData['displaytype'] = _findall('DISPLAYTYPE\s+(\d+)', line)[0]
+            self.currData['behaviortype'] = _findall('BEHAVIORTYPE\s+(\d+)',
+                                                     line)[0]
+            self.currData['displaytype'] = _findall('DISPLAYTYPE\s+(\d+)',
+                                                    line)[0]
         elif _match('^\s+DX_EMERG_STOP', line):
             self.currData['dx_emerg_stop'] = _findall('DX_EMERG_STOP\s+(\d+.\d+)', line)[0]
             self.currData['dx_lane_change'] = _findall('DX_LANE_CHANGE\s+(\d+.\d+)', line)[0]
         elif _match('^\s+GRADIENT', line):
             self.currData['gradient'] = _findall('GRADIENT\s+(-?\d+.\d+)',
-                                                  line)[0]
+                                                 line)[0]
             self.currData['cost'] = _findall('COST\s+(\d+.\d+)', line)[0]
             self.currData['surcharges'] = _findall('SURCHARGE\s+(\d+.\d+)',
-                                                    line)
+                                                   line)
         elif _match('^\s+SEGMENT', line):
             self.currData['segment_length'] = _findall('LENGTH\s+(\d+.\d+)',
-                                                        line)[0]
+                                                       line)[0]
             if _search('NONE ANIMATION', line):
-                self.currData['visualization'] = False
+                self.currData['animation'] = False
             else:
-                self.currData['visualization'] = True
+                self.currData['animation'] = True
         elif _search('NOLANECHANGE', line):
             self.currData['nolanechange'] = {}
             lanes = _findall('LANE\s+(\d+) (\w+) (\w+)', line)
@@ -533,40 +610,42 @@ class Connector:
         Output: connector back into VISSIM syntax
         """
         vissimOut = []
-        vissimOut.append('CONNECTOR ' + str(connector['connector']) +
-                          ' NAME ' + connector['name'] + ' LABEL ' +
-                          connector['label'][0] + ' ' + connector['label'][1])
-        from_lanes_str = ''
-        for i in connector['from_lanes']:
-            from_lanes_str += i + ' '
-        vissimOut.append('FROM LINK '.rjust(12) + str(connector['from']) +
-                          ' LANES ' + from_lanes_str + 'AT ' + connector
-                          ['from_at'])
-        over_str = ''
-        for i in connector['over']:
-            over_str += '  OVER ' + i[0] + ' ' + i[1] + ' ' + i[2]
-        vissimOut.append(over_str)
-        to_lanes_str = ''
-        for i in connector['to_lanes']:
-            to_lanes_str += i + ' '
-        vissimOut.append('TO LINK '.rjust(10) + str(connector['to']) +
-                          ' LANES '.rjust(7) + to_lanes_str + 'AT ' + connector
-                          ['to_at'].ljust(6) + ' BEHAVIORTYPE ' + connector
-                          ['behaviortype'] + ' DISPLAYTYPE ' + connector
-                          ['displaytype'] + ' ALL')
-        vissimOut.append('DX_EMERG_STOP '.rjust(16) + connector
-                          ['dx_emerg_stop'] + ' DX_LANE_CHANGE ' + connector
-                          ['dx_lane_change'])
-        vissimOut.append('GRADIENT '.rjust(11) + connector['gradient'] +
-                          ' COST ' + connector['cost'] + ' SURCHARGE ' +
-                          connector['surcharges'][0] + ' SURCHARGE ' +
-                          connector['surcharges'][1])
-        if connector['visualization'] is False:
-            vissimOut.append('SEGMENT LENGTH '.rjust(17) + connector
-                              ['segment_length'] + ' NONE ANIMATION')
+        connNum = connector['connector']
+
+        def _out(label, s=True):
+            return self.get(connNum, label, string=s)
+        vissimOut.append('CONNECTOR ' + _out('connector') +
+                         ' NAME ' + _out('name') + ' LABEL ' +
+                         _out('label')[0] + ' ' + _out('label')[1])
+        fromLanesStr = ''
+        for i in _out('from_lanes', s=False):
+            fromLanesStr += i + ' '
+        vissimOut.append('FROM LINK '.rjust(12) + _out('from') +
+                         ' LANES ' + fromLanesStr + 'AT ' + _out('from_at'))
+        overStr = ''
+        for i in _out('over', s=False):
+            overStr += '  OVER ' + i[0] + ' ' + i[1] + ' ' + i[2]
+        vissimOut.append(overStr)
+        toLanesStr = ''
+        for i in _out('to_lanes'):
+            toLanesStr += i + ' '
+        vissimOut.append('TO LINK '.rjust(10) + _out('to') +
+                         ' LANES '.rjust(7) + toLanesStr + 'AT ' +
+                         _out('to_at').ljust(6) + ' BEHAVIORTYPE ' +
+                         _out('behaviortype') + ' DISPLAYTYPE ' +
+                         _out('displaytype') + ' ALL')
+        vissimOut.append('DX_EMERG_STOP '.rjust(16) + _out('dx_emerg_stop') +
+                         ' DX_LANE_CHANGE ' + _out('dx_lane_change'))
+        vissimOut.append('GRADIENT '.rjust(11) + _out('gradient') +
+                         ' COST ' + _out('cost') + ' SURCHARGE ' +
+                         _out('surcharges')[0] + ' SURCHARGE ' +
+                         _out('surcharges')[1])
+        if connector['animation'] is False:
+            vissimOut.append('SEGMENT LENGTH '.rjust(17) +
+                             _out('segment_length') + ' NONE ANIMATION')
         else:
-            vissimOut.append('SEGMENT LENGTH '.rjust(17) + connector
-                              ['segment_length'] + ' ANIMATION')
+            vissimOut.append('SEGMENT LENGTH '.rjust(17) +
+                             _out('segment_length') + ' ANIMATION')
         return vissimOut
 
     def export(self, filename):
@@ -576,60 +655,6 @@ class Connector:
             Output: List of all connector lots in VISSIM syntax
         """
         _exportSection(self, filename)
-
-    def create(self, from_link, to_link, **kwargs):
-        connector_num = str(self.data.get('num', max(self.data.keys()) + 1))
-        self.data[connector_num] = {}
-        connector = self.data[connector_num]
-        connector['connector'] = connector_num
-        connector['from'] = from_link
-        connector['to'] = to_link
-        # Default values
-        connector['label'] = kwargs.get('label', ('0.00', '0.00'))
-        connector['from_lanes'] = kwargs.get('from_lanes', '1')
-        connector['from_at'] = kwargs.get('from_at', self.links.get(from_link,
-                                          'length'))
-        # Calculate default spline points between from link and to link:
-        over1 = self.links.get(from_link, 'to').append('0.000')
-        over4 = self.links.get(to_link, 'from').append('0.000')
-        if over4[0] == over1[0] and over4[1] == over1[1]:
-            over1[1] = str(float(over1[1]) + 0.001)
-            over2 = [str(float(over4[0]) + 0.001), over4[1], over4[2]]
-            over3 = [str(_median([over2[0], over4[0]])), str(_median([over2[1],
-                     over4[1]])), str(_median([over2[2], over4[2]]))]
-        else:
-            over2 = [str(_median([over4[0], over1[0]])), str(_median([over4[1],
-                     over1[1]])), str(_median([over4[2], over1[2]]))]
-            over3 = [str(_median([over2[0], over4[0]])), str(_median([over2[1],
-                     over4[1]])), str(_median([over2[2], over4[2]]))]
-        connector['over'] = kwargs.get('over', [over1, over2, over3, over4])
-        connector['name'] = kwargs.get('name', '""')
-        connector['to_lanes'] = kwargs.get('to_lanes', ['1'])
-        connector['to_at'] = kwargs.get('to_at', '0.000')
-        connector['behaviortype'] = kwargs.get('behaviortype', '1')
-        connector['displaytype'] = kwargs.get('displaytype', '1')
-        connector['dx_emerg_stop'] = kwargs.get('dx_emerg_stop', '4.999')
-        connector['dx_lane_change'] = kwargs.get('dx_lane_change', '200.010')
-        connector['gradient'] = kwargs.get('gradient', '0.00000')
-        connector['cost'] = kwargs.get('cost', '0.00000')
-        connector['surcharges'] = kwargs.get('surcharges',
-                                             ['0.00000', '0.00000'])
-        connector['segment_length'] = kwargs.get('segment_length', '10.000')
-        connector['visualization'] = kwargs.get('visualization', True)
-
-    def get(self, connnum, label):
-        """ Get value from Connector.
-            Input: Connector number, Value label
-            Output: Value
-        """
-        return _getData(self.data, connnum, label)
-
-    def set(self, connnum, label, value):
-        """ Set value from Connector.
-            Input: Connector number, Value label, value
-            Output: Change is made in place
-        """
-        _setData(self.data, connnum, label, value)
 
 
 class Parking:
@@ -641,6 +666,31 @@ class Parking:
         self.data = {}
         self.currData = None
         _importSection(self, filename)
+
+    def create(self, linksobj, link, length, at, lane, **kwargs):
+        parking_num = int(kwargs.get('num', max(self.data.keys())+1))
+        self.data[parking_num] = {}
+        parking = self.data[parking_num]
+        parking['parking'] = parking_num
+        parking['lane'] = lane
+        parking['at'] = at
+        parking['position_link'] = link
+        parking['length'] = length
+        # Default values
+        parking['name'] = kwargs.get('name', '""')
+        parking['label'] = kwargs.get('label', ['0.000', '0.000'])
+        parking['spaces_length'] = kwargs.get('spaces_length', '6.000')
+        parking['zones'] = kwargs.get('zones', '""')
+        parking['fraction'] = kwargs.get('fraction', '1.000')
+        parking['capacity'] = kwargs.get('capacity', '100')
+        parking['occupancy'] = kwargs.get('occupancy', '0')
+        parking['desired_speed'] = kwargs.get('desired_speed', '999')
+        parking['open_hours'] = kwargs.get('open_hours', ('0', '99999'))
+        parking['max_time'] = kwargs.get('max_time', '99999')
+        parking['flat_fee'] = kwargs.get('flat_fee', '0.0')
+        parking['fee_per_hour'] = kwargs.get('fee_per_hour', '0.0')
+        parking['attraction'] = kwargs.get('attraction', '0.0 0.0')
+        parking['composition'] = kwargs.get('composition', '1')
 
     def _readSection(self, line):
         if _match('^\s+PARKING_LOT', line):
@@ -739,31 +789,6 @@ class Parking:
         """
         _exportSection(self, filename)
 
-    def create(self, linksobj, link, length, at, lane, **kwargs):
-        parking_num = int(kwargs.get('num', max(self.data.keys())+1))
-        self.data[parking_num] = {}
-        parking = self.data[parking_num]
-        parking['parking'] = parking_num
-        parking['lane'] = lane
-        parking['at'] = at
-        parking['position_link'] = link
-        parking['length'] = length
-        # Default values
-        parking['name'] = kwargs.get('name', '""')
-        parking['label'] = kwargs.get('label', ['0.000', '0.000'])
-        parking['spaces_length'] = kwargs.get('spaces_length', '6.000')
-        parking['zones'] = kwargs.get('zones', '""')
-        parking['fraction'] = kwargs.get('fraction', '1.000')
-        parking['capacity'] = kwargs.get('capacity', '100')
-        parking['occupancy'] = kwargs.get('occupancy', '0')
-        parking['desired_speed'] = kwargs.get('desired_speed', '999')
-        parking['open_hours'] = kwargs.get('open_hours', ('0', '99999'))
-        parking['max_time'] = kwargs.get('max_time', '99999')
-        parking['flat_fee'] = kwargs.get('flat_fee', '0.0')
-        parking['fee_per_hour'] = kwargs.get('fee_per_hour', '0.0')
-        parking['attraction'] = kwargs.get('attraction', '0.0 0.0')
-        parking['composition'] = kwargs.get('composition', '1')
-
 
 class Transit:
     """ Handles Transit section of .INP file.
@@ -774,6 +799,29 @@ class Transit:
         self.data = {}
         self.currData = None
         _importSection(self, filename)
+
+    def create(self, link, dest_link, at, desired_speed, vehicle_type,
+               **kwargs):
+        transit_num = kwargs.get('num', max(self.data.keys() or [0]) + 1)
+        self.data[transit_num] = {}
+        transit = self.data[transit_num]
+        transit['line'] = str(transit_num)
+        transit['link'] = str(link)
+        transit['at'] = str(at)
+        transit['destination_link'] = str(dest_link)
+        transit['desired_speed'] = str(desired_speed)
+        transit['vehicle_type'] = str(vehicle_type)
+        # Default values
+        transit['anm'] = kwargs.get('anm', '""')
+        transit['name'] = kwargs.get('name', '""')
+        transit['route'] = kwargs.get('route', '0')
+        transit['priority'] = kwargs.get('priority', '0')
+        transit['length'] = kwargs.get('length', '0')
+        transit['mdn'] = kwargs.get('mdn', '0')
+        transit['pt'] = kwargs.get('pt', False)
+        transit['color'] = kwargs.get('color', 'CYAN')
+        transit['time_offset'] = kwargs.get('time_offset', '0.0')
+        transit['start_times'] = kwargs.get('start_times', [])
 
     def _readSection(self, line):
         """ Process the Transit Decision section of the INP file
@@ -859,29 +907,6 @@ class Transit:
             Output: List of all transit lots in VISSIM syntax
         """
         _exportSection(self, filename)
-
-    def create(self, link, dest_link, at, desired_speed, vehicle_type,
-               **kwargs):
-        transit_num = kwargs.get('num', max(self.data.keys() or [0]) + 1)
-        self.data[transit_num] = {}
-        transit = self.data[transit_num]
-        transit['line'] = str(transit_num)
-        transit['link'] = str(link)
-        transit['at'] = str(at)
-        transit['destination_link'] = str(dest_link)
-        transit['desired_speed'] = str(desired_speed)
-        transit['vehicle_type'] = str(vehicle_type)
-        # Default values
-        transit['anm'] = kwargs.get('anm', '""')
-        transit['name'] = kwargs.get('name', '""')
-        transit['route'] = kwargs.get('route', '0')
-        transit['priority'] = kwargs.get('priority', '0')
-        transit['length'] = kwargs.get('length', '0')
-        transit['mdn'] = kwargs.get('mdn', '0')
-        transit['pt'] = kwargs.get('pt', False)
-        transit['color'] = kwargs.get('color', 'CYAN')
-        transit['time_offset'] = kwargs.get('time_offset', '0.0')
-        transit['start_times'] = kwargs.get('start_times', [])
 
 
 class Routing:

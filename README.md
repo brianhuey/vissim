@@ -28,7 +28,7 @@ Links = vissim.Links('example.inp')
 # Loaded link data
 Links.links_data
 # Create link from coord 0,0 to 10,15
-Links.create_link((0,0), (10,15))
+Links.create((0,0), (10,15))
 # Export loaded link data and new link
-Links.export_links('example_new.inp')
+Links.export('example_new.inp')
 ```
