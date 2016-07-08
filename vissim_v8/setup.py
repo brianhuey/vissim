@@ -16,14 +16,14 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='vissim',
+    name='vissim_v8',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
     version='1.0.0',
 
-    description='Parse and manipulate VISSIM v5.4 models',
+    description='Parse and manipulate VISSIM v8.x models',
     long_description=long_description,
 
     # The project's main homepage.
@@ -70,11 +70,11 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    #packages=find_packages(exclude=[]),
+    # packages=find_packages(exclude=[]),
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
-       py_modules=["vissim"],
+       py_modules=["vissim_v8"],
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's
