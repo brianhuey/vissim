@@ -9,7 +9,7 @@ class Vissim(object):
         self.data = self._load(filename)
 
         def _getParams(path):
-            return [i for i in self.data.xpath(path)]
+            return [int(i) for i in self.data.xpath(path)]
         self._colorDistribution = _getParams('./colorDistributions/colorDistribution/@no')
         self._conflictArea = _getParams('./conflictAreas/conflictArea/@no')
         self._desAcceleration = _getParams('./desAccelerationFunctions/desAccelerationFunction/@no')
@@ -40,21 +40,28 @@ class Vissim(object):
     def _load(self, filename):
         """ Load XML file """
         f = open(filename, 'r')
-        return etree.parse(f)
+        parser = etree.XMLParser(remove_blank_text=True)
+        return etree.parse(f, parser=parser)
 
     def export(self, filename):
         """ Write XML file to disk """
-        self.data.write(filename, encoding="UTF-8", standalone=False)
+        self.data.write(filename, encoding="UTF-8", standalone=False,
+                        pretty_print=True)
 
     def _getAttributes(self, path):
         data = self.data.xpath(path)
         if len(data) > 1:
             raise KeyError('Number of elements > 1')
+        elif len(data) == 0:
+            raise KeyError('Key does not exist')
         else:
             return data[0].attrib
 
     def _getChildren(self, path):
-        return [i.attrib for i in self.data.xpath(path)]
+        if len(self.data.xpath(path)) == 0:
+            raise KeyError('Key does not exist')
+        else:
+            return [i.attrib for i in self.data.xpath(path)]
 
     def _setAttribute(self, path, attr, value):
         data = self.data.xpath(path)
@@ -69,12 +76,15 @@ class Vissim(object):
         data = self.data.xpath(path)
         if len(data) > 1:
             raise KeyError('Number of elements > 1')
-        attr = {str(k): str(v) for k, v in attr.items()}
-        etree.SubElement(data[0], element, attrib=attr)
+        if attr is None:
+            etree.SubElement(data[0], element)
+        else:
+            attr = {str(k): str(v) for k, v in attr.items()}
+            etree.SubElement(data[0], element, attrib=attr)
 
     def _removeChild(self, parent, child):
-        data = self.data.xpath(parent)
-        data.remove(self.data.xpath(child))
+        data = self.data.xpath(parent)[0]
+        data.remove(self.data.xpath(child)[0])
 
     def _getNewNum(self, nums):
         if len(nums) == 0:
@@ -90,7 +100,7 @@ class Links(Vissim):
     def __init__(self, filename):
         self.path = './links'
         super(Links, self).__init__(filename)
-        self.links = self.data.xpath(self.path)
+        self.links = self.data.xpath(self.path)[0]
         self.types = {'assumSpeedOncom': float, 'costPerKm': float,
                       'direction': str, 'displayType': int,
                       'emergStopDist': float, 'gradient': float,
@@ -120,7 +130,8 @@ class Links(Vissim):
             Output: Changed link attribute
         """
         xpath = self.path + '/link[@no="' + str(linkNum) + '"]'
-        return self._setAttribute(xpath, attr, value)
+        self._setAttribute(xpath, attr, value)
+        return self.getLink(linkNum)
 
     def getGeometry(self, linkNum):
         """ Get link geometry.
@@ -142,6 +153,7 @@ class Links(Vissim):
             for x, y, z in points:
                 a = {'x': x, 'y': y, 'zOffset': z}
                 self._setChild(xpath, 'point3D', a)
+            return self.getGeometry(linkNum)
         else:
             raise TypeError('points must be list of tuples')
 
@@ -163,10 +175,11 @@ class Links(Vissim):
         if isinstance(lanes, list):
             for width in lanes:
                 self._setChild(xpath, 'lane', {'width': width})
+            return self.getLanes(linkNum)
         else:
             raise TypeError('lanes must be a list of width values')
 
-    def createLink(self, linkNum, **kwargs):
+    def createLink(self, **kwargs):
         """ Create a new link in the model.
             Input: link number, link, point3D and lane attributes as dict
             Output: Added <link> element to <links> element.
@@ -174,7 +187,7 @@ class Links(Vissim):
         num = self._getNewNum(self._link)
         defaults = {'assumSpeedOncom': '60.00000', 'costPerKm': '0.00000',
                     'direction': 'ALL',
-                    'displayType': _self._getDefaultNum(self._displayType),
+                    'displayType': self._getDefaultNum(self._displayType),
                     'emergStopDist': '5.00000', 'gradient': '0.00000',
                     'hasOvtLn': 'false', 'isPedArea': 'false', 'level': '1',
                     'linkBehavType': self._getDefaultNum(self._linkBehavType),
@@ -191,13 +204,14 @@ class Links(Vissim):
         data = self.data
         a = {k: kwargs.get(k, v) for k, v in defaults.items()}
         self._setChild(self.path, 'link', a)
-        xpath = self.path + '/link[@no="' + str(linkNum) + '"]'
+        xpath = self.path + '/link[@no="' + str(a['no']) + '"]'
         self._setChild(xpath, 'geometry', None)
         self._setChild(xpath + '/geometry', 'points3D', None)
-        self.setGeometry(linkNum, kwargs.get('point3D',
+        self.setGeometry(a['no'], kwargs.get('point3D',
                          [('0', '0', '0'), ('1', '1', '0')]))
         self._setChild(xpath, 'lanes', None)
-        self.setLanes(linkNum, kwargs.get('lane', ['3.500000']))
+        self.setLanes(a['no'], kwargs.get('lane', ['3.500000']))
+        return self.getLink(a['no'])
 
     def removeLink(self, linkNum):
         """ Remove an existing link from the model.
@@ -213,8 +227,7 @@ class Inputs(Vissim):
     def __init__(self, filename):
         self.path = './vehicleInputs'
         super(Inputs, self).__init__(filename)
-        self.inputs = self.data.xpath(self.path)
-        self.links = self.data.xpath('./links/link')
+        self.inputs = self.data.xpath(self.path)[0]
         self.types = {'anmFlag': bool, 'link': int, 'name': str, 'no': int}
 
     def getInput(self, attr, value):
@@ -234,7 +247,8 @@ class Inputs(Vissim):
             Output: Changed input attribute
         """
         xpath = self.path + '/vehicleInput[@no="' + str(inputNum) + '"]'
-        return self._setAttribute(xpath, attr, value)
+        self._setAttribute(xpath, attr, value)
+        return self.getInput('no', inputNum)
 
     def getVols(self, inputNum):
         """ Get attributes of volume.
@@ -258,8 +272,9 @@ class Inputs(Vissim):
         a = {k: kwargs.get(k, v) for k, v in defaults.items()}
         a['volume'] = vol
         self._setChild(xpath, 'timeIntervalVehVolume', a)
+        return self.getVols(inputNum)
 
-    def createInput(self, inputNum, linkNum, vol, **kwargs):
+    def createInput(self, linkNum, vol, **kwargs):
         """ Create a new input in the model.
             Input: input number, input and volume attributes as dict
             Output: Added <vehicleInput> element to <vehicleInputs> element.
@@ -270,9 +285,10 @@ class Inputs(Vissim):
         a = {k: kwargs.get(k, v) for k, v in defaults.items()}
         a['link'] = linkNum
         self._setChild(self.path, 'vehicleInput', a)
-        xpath = self.path + '/vehicleInput[@no="' + str(inputNum) + '"]'
+        xpath = self.path + '/vehicleInput[@no="' + str(a['no']) + '"]'
         self._setChild(xpath, 'timeIntVehVols', None)
-        self.setVols(inputNum, vol, kwargs)
+        self.setVols(a['no'], vol, **kwargs)
+        return self.getInput('no', a['no'])
 
     def removeInput(self, inputNum):
         """ Remove an existing input from the model.
@@ -288,11 +304,27 @@ class StaticRouting(Vissim):
     def __init__(self, filename):
         self.path = './vehicleRoutingDecisionsStatic'
         super(StaticRouting, self).__init__(filename)
-        self.routing = self.data.xpath(self.path)
-        self.links = self.data.xpath('./links/link')
+        self.routing = self.data.xpath(self.path)[0]
         self.types = {'allVehTypes': bool, 'anmFlag': bool,
                       'combineStaRoutDec': bool, 'link': int, 'name': str,
                       'no': int, 'pos': float}
+
+    def removeRoute(self, routingNum, routeNum):
+        """ Remove an existing route from the model.
+            Input: routing decision number, route number
+            Output: Removed <vehicleRouteStatic> element from
+            <vehRoutSta> element
+        """
+        parent = (self.path + '/vehicleRoutingDecisionStatic[@no="' +
+                  str(routingNum) + '"]/vehRoutSta')
+        child = parent + '/vehicleRouteStatic[@no="' + str(inputNum) + '"]'
+        self._removeChild(parent, child)
+
+    def removeRouting(self, routingNum):
+        parent = self.path
+        child = (self.path + '/vehicleRoutingDecisionStatic[@no="' +
+                 str(routingNum) + '"]')
+        self._removeChild(parent, child)
 
     def getRouting(self, attr, value):
         """ Get attributes for a given routing decision based on attribute
@@ -406,11 +438,13 @@ class StaticRouting(Vissim):
         xpath2 = xpath + '/vehicleRouteStatic[@no="' + str(num) + '"]'
         self.setChild(xpath2, 'linkSeq')
         self.setRouteSeq(routingNum, num, kwargs.get('linkSeq', []))
+        return self.getRoute(routingNum, a['no'])
 
     def createRouting(self, linkNum, **kwargs):
-        """ Create a new link in the model.
-            Input: link number, link, point3D and lane attributes as dict
-            Output: Added <link> element to <links> element.
+        """ Create a new routing decision in the model.
+            Input: link number and attributes as dict
+            Output: Added <vehicleRoutingDecisionStatic> element to
+            <vehicleRoutingDecisionsStatic> element.
         """
         num = self._getNums('./links/link/@no')
         defaults = {'allVehTypes': 'false', 'anmFlag': 'false', 'no': num,
@@ -425,3 +459,4 @@ class StaticRouting(Vissim):
         self._setChild(xpath, 'vehClasses', None)
         self.setVehicleClasses(a['no'], a['vehClasses'])
         self._setChild(xpath, 'vehRoutSta', None)
+        return self.getRouting('no', a['no'])
