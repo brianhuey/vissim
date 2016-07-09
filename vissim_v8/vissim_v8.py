@@ -43,6 +43,10 @@ class Vissim(object):
         parser = etree.XMLParser(remove_blank_text=True)
         return etree.parse(f, parser=parser)
 
+    def _new(self):
+        """ Load default blank VISSIM model """
+        return self._load('default.inpx')
+
     def export(self, filename):
         """ Write XML file to disk """
         self.data.write(filename, encoding="UTF-8", standalone=False,
@@ -97,7 +101,7 @@ class Vissim(object):
 
 
 class Links(Vissim):
-    def __init__(self, filename):
+    def __init__(self):
         self.path = './links'
         super(Links, self).__init__(filename)
         self.links = self.data.xpath(self.path)[0]
