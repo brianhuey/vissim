@@ -122,6 +122,12 @@ class Vissim(object):
         nums = self.params[key]
         return list(nums)[0]
 
+    def _parseLane(self, laneStr):
+        """ Parse lane strings in to link and lane number """
+        laneStr = str(laneStr)
+        link, lane = laneStr.split(' ')
+        return {'link': link, 'lane': lane}
+
 
 class Links(Vissim):
     def __init__(self, data, params):
@@ -150,6 +156,18 @@ class Links(Vissim):
         """
         return self._getAttributes('no', linkNum)
 
+    def getConnector(self, linkNum):
+        """ Get attributes of connector.
+            Input: link (connector) number
+            Output: Dict of link and connector attributes
+        """
+        child1 = '/fromLinkEndPt'
+        child2 = '/toLinkEndPt'
+        linkAttr = self.getLink(linkNum)
+        fromLink = self._getAttributes('no', linkNum, child1)
+        toLink = self._getAttributes('no', linkNum, child2)
+        return dict(linkAttr, **{'from': fromLink, 'to': toLink})
+
     def setLink(self, linkNum, attr, value):
         """ Set attribute of link.
             Input: link number
@@ -157,6 +175,14 @@ class Links(Vissim):
         """
         self._setAttribute('no', linkNum, attr, value)
         return self.getLink(linkNum)
+
+    def setConnector(self, linkNum, attr, value, fromLink=True):
+        if fromLink:
+            child = '/fromLinkEndPt'
+        elif not fromLink:
+            child = '/toLinkEndPt'
+        self._setAttribute('no', linkNum, attr, value, child)
+        return self.getConnector(linkNum)
 
     def getGeometry(self, linkNum):
         """ Get link geometry.
@@ -234,8 +260,55 @@ class Links(Vissim):
         self.setLanes(a['no'], kwargs.get('lane', ['3.500000']))
         return self.getLink(a['no'])
 
+    def createConnector(self, fromLink, fromLane, toLink, toLane, lanes,
+                        ** kwargs):
+        """ Create a new connector in the model.
+            Input: from link, from lane, to link, to lane, attributes
+            Output: Added <link> element to <links> element.
+        """
+        num = self._getNewNum('link')
+        defaults = {'assumSpeedOncom': '60.00000', 'costPerKm': '0.00000',
+                    'direction': 'ALL',
+                    'displayType': self._getDefaultNum('displayType'),
+                    'emergStopDist': '5.00000', 'gradient': '0.00000',
+                    'hasOvtLn': 'false', 'isPedArea': 'false',
+                    'linkBehavType': self._getDefaultNum('linkBehaviorType'),
+                    'linkEvalAct': 'false',
+                    'linkEvalSegLen': '10.00000', 'lnChgDist': '200.00000',
+                    'lnChgDistIsPerLn': 'false',
+                    'lnChgEvalAct': 'true', 'lookAheadDistOvt': '250.00000',
+                    'mesoFollowUpGap': '0.00000', 'mesoSpeed': '50.00000',
+                    'mesoSpeedModel': 'VEHICLEBASED', 'name': '',
+                    'ovtOnlyPT': 'false', 'ovtSpeedFact': '1.300000',
+                    'showClsfValues': 'true', 'showLinkBar': 'true',
+                    'showVeh': 'true', 'surch1': '0.00000',
+                    'surch2': '0.00000', 'thickness': '0.00000',
+                    'vehRecAct': 'true', 'no': num}
+        data = self.data
+        a = {k: kwargs.get(k, v) for k, v in defaults.items()}
+        etree.SubElement(data.xpath('./links')[0], 'link', attrib=a)
+        self._setChild('no', a['no'], 'geometry', None)
+        self._setChild('no', a['no'], 'points3D', None, '/geometry')
+        self.setGeometry(a['no'], kwargs.get('point3D',
+                         [('0', '0', '0'), ('1', '1', '0')]))
+        self._setChild('no', a['no'], 'lanes', None)
+        # Check number of lanes doesn't exceed the number of from/to lanes
+        (if len(self.getLanes(fromLink)) >= lanes and
+         len(self.getLanes(toLink)) >= lanes):
+            for lane in range(lanes):
+                self._setChild('no', a['no'], 'lane', None, '/lanes')
+        else:
+            raise ValueError('Number of lanes exceeds number of from/to lanes')
+        fromLink = {'lane': str(fromLink) + ' ' + str(fromLane),
+                    'pos': kwargs.get('fromPos', '0.0000')}
+        toLink = {'lane': str(toLink) + ' ' + str(toLane),
+                  'pos': kwargs.get('toPos', '')}
+        self._setChild('no', a['no'], 'fromLinkEndPt', fromLink)
+        self._setChild('no', a['no'], 'toLinkEndPt', toLink)
+        return self.getLink(a['no'])
+
     def removeLink(self, linkNum):
-        """ Remove an existing link from the model.
+        """ Remove an existing link or connector from the model.
             Input: link number
             Output: Removed <link> element from <links> element
         """

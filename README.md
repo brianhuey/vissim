@@ -45,8 +45,6 @@ links.export('example_new.inpx')
 - Export data to .INP file
 - Get object attributes
 - Set object attributes 
-<<<<<<< HEAD
-=======
 - Create objects
 
 ###Install:

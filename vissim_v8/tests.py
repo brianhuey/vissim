@@ -27,6 +27,27 @@ class link_unittest(unittest.TestCase):
                   'vehRecAct': 'true'}
         self.assertEqual(self.links.getLink(1), answer)
 
+    def test_getConnector(self):
+        answer = {'assumSpeedOncom': '60.000000', 'costPerKm': '0.000000',
+                  'direction': 'ALL', 'displayType': '1',
+                  'emergStopDist': '5.000000', 'from': {'lane': '4 1',
+                                                        'pos': '198.991000'},
+                  'gradient': '0.000000', 'hasOvtLn': 'false',
+                  'isPedArea': 'false', 'linkBehavType': '1',
+                  'linkEvalAct': 'false', 'linkEvalSegLen': '10.000000',
+                  'lnChgDist': '200.000000', 'lnChgDistIsPerLn': 'false',
+                  'lnChgEvalAct': 'true', 'lookAheadDistOvt': '250.000000',
+                  'mesoFollowUpGap': '0.000000', 'mesoSpeed': '50.000000',
+                  'mesoSpeedModel': 'VEHICLEBASED', 'name': '', 'no': '10080',
+                  'ovtOnlyPT': 'false', 'ovtSpeedFact': '1.300000',
+                  'showClsfValues': 'true', 'showLinkBar': 'true',
+                  'showVeh': 'true', 'surch1': '0.000000',
+                  'surch2': '0.000000',
+                  'thickness': '0.000000', 'to': {'lane': '63 1',
+                                                  'pos': '0.271000'},
+                  'vehRecAct': 'true'}
+        self.assertEqual(self.links.getConnector(10080), answer)
+
     def test_setLink(self):
         answer = {'showVeh': 'true', 'assumSpeedOncom': '60.000000',
                   'hasOvtLn': 'false', 'costPerKm': '0.000000',
@@ -44,6 +65,28 @@ class link_unittest(unittest.TestCase):
                   'linkBehavType': '1', 'lnChgEvalAct': 'true',
                   'vehRecAct': 'true'}
         self.assertEqual(self.links.setLink(1, 'displayType', '2'), answer)
+
+    def test_setConnector(self):
+        answer = {'assumSpeedOncom': '60.000000', 'costPerKm': '0.000000',
+                  'direction': 'ALL', 'displayType': '1',
+                  'emergStopDist': '5.000000', 'from': {'lane': '4 1',
+                                                        'pos': '198.991000'},
+                  'gradient': '0.000000', 'hasOvtLn': 'false',
+                  'isPedArea': 'false', 'linkBehavType': '1',
+                  'linkEvalAct': 'false', 'linkEvalSegLen': '10.000000',
+                  'lnChgDist': '200.000000', 'lnChgDistIsPerLn': 'false',
+                  'lnChgEvalAct': 'true', 'lookAheadDistOvt': '250.000000',
+                  'mesoFollowUpGap': '0.000000', 'mesoSpeed': '50.000000',
+                  'mesoSpeedModel': 'VEHICLEBASED', 'name': '', 'no': '10080',
+                  'ovtOnlyPT': 'false', 'ovtSpeedFact': '1.300000',
+                  'showClsfValues': 'true', 'showLinkBar': 'true',
+                  'showVeh': 'true', 'surch1': '0.000000',
+                  'surch2': '0.000000',
+                  'thickness': '0.000000', 'to': {'lane': '63 1',
+                                                  'pos': '0.0000'},
+                  'vehRecAct': 'true'}
+        self.assertEqual(self.links.setConnector(10080, 'pos', '0.0000',
+                                                 fromLink=False), answer)
 
     def test_getGeometry(self):
         answer = [{'y': '3786.952000', 'x': '-282.116000',
@@ -88,6 +131,29 @@ class link_unittest(unittest.TestCase):
                     'surch2': '0.00000', 'thickness': '0.00000',
                     'vehRecAct': 'true', 'no': '6000'}
         self.assertEqual(self.links.createLink(**defaults), defaults)
+
+    def test_createConnector(self):
+        defaults = {'assumSpeedOncom': '60.000000', 'costPerKm': '0.000000',
+                    'direction': 'ALL', 'displayType': '1',
+                    'emergStopDist': '5.000000', 'from': {'lane': '4 1',
+                                                          'pos': '198.991000'},
+                    'gradient': '0.000000', 'hasOvtLn': 'false',
+                    'isPedArea': 'false', 'linkBehavType': '1',
+                    'linkEvalAct': 'false', 'linkEvalSegLen': '10.000000',
+                    'lnChgDist': '200.000000', 'lnChgDistIsPerLn': 'false',
+                    'lnChgEvalAct': 'true', 'lookAheadDistOvt': '250.000000',
+                    'mesoFollowUpGap': '0.000000', 'mesoSpeed': '50.000000',
+                    'mesoSpeedModel': 'VEHICLEBASED', 'name': '',
+                    'no': '90000',
+                    'ovtOnlyPT': 'false', 'ovtSpeedFact': '1.300000',
+                    'showClsfValues': 'true', 'showLinkBar': 'true',
+                    'showVeh': 'true', 'surch1': '0.000000',
+                    'surch2': '0.000000',
+                    'thickness': '0.000000', 'to': {'lane': '63 1',
+                                                    'pos': '0.271000'},
+                    'vehRecAct': 'true', 'lanes': '2'}
+        self.assertEqual(self.links.createConnector(2, 1, 3, 1, **defaults),
+                         defaults)
 
     def test_removeLink(self):
         answer = {'showVeh': 'true', 'assumSpeedOncom': '60.000000',
