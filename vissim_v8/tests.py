@@ -8,6 +8,7 @@ class link_unittest(unittest.TestCase):
     def setUp(self):
         self.v = vissim.Vissim(network)
         self.links = self.v.links
+        self.maxDiff = None
 
     def test_getLink(self):
         answer = {'showVeh': 'true', 'assumSpeedOncom': '60.000000',
@@ -30,7 +31,8 @@ class link_unittest(unittest.TestCase):
     def test_getConnector(self):
         answer = {'assumSpeedOncom': '60.000000', 'costPerKm': '0.000000',
                   'direction': 'ALL', 'displayType': '1',
-                  'emergStopDist': '5.000000', 'from': {'lane': '4 1',
+                  'emergStopDist': '5.000000', 'from': {'connectLink': '4',
+                                                        'connectLane': '1',
                                                         'pos': '198.991000'},
                   'gradient': '0.000000', 'hasOvtLn': 'false',
                   'isPedArea': 'false', 'linkBehavType': '1',
@@ -43,7 +45,8 @@ class link_unittest(unittest.TestCase):
                   'showClsfValues': 'true', 'showLinkBar': 'true',
                   'showVeh': 'true', 'surch1': '0.000000',
                   'surch2': '0.000000',
-                  'thickness': '0.000000', 'to': {'lane': '63 1',
+                  'thickness': '0.000000', 'to': {'connectLink': '63',
+                                                  'connectLane': '1',
                                                   'pos': '0.271000'},
                   'vehRecAct': 'true'}
         self.assertEqual(self.links.getConnector(10080), answer)
@@ -69,7 +72,8 @@ class link_unittest(unittest.TestCase):
     def test_setConnector(self):
         answer = {'assumSpeedOncom': '60.000000', 'costPerKm': '0.000000',
                   'direction': 'ALL', 'displayType': '1',
-                  'emergStopDist': '5.000000', 'from': {'lane': '4 1',
+                  'emergStopDist': '5.000000', 'from': {'connectLink': '4',
+                                                        'connectLane': '1',
                                                         'pos': '198.991000'},
                   'gradient': '0.000000', 'hasOvtLn': 'false',
                   'isPedArea': 'false', 'linkBehavType': '1',
@@ -82,36 +86,50 @@ class link_unittest(unittest.TestCase):
                   'showClsfValues': 'true', 'showLinkBar': 'true',
                   'showVeh': 'true', 'surch1': '0.000000',
                   'surch2': '0.000000',
-                  'thickness': '0.000000', 'to': {'lane': '63 1',
+                  'thickness': '0.000000', 'to': {'connectLink': '63',
+                                                  'connectLane': '1',
                                                   'pos': '0.0000'},
                   'vehRecAct': 'true'}
         self.assertEqual(self.links.setConnector(10080, 'pos', '0.0000',
                                                  fromLink=False), answer)
 
-    def test_getGeometry(self):
+    def test_getGeometries(self):
         answer = [{'y': '3786.952000', 'x': '-282.116000',
                    'zOffset': '0.000000'},
                   {'y': '4007.169000', 'x': '-285.973000',
                    'zOffset': '0.000000'}]
-        self.assertEqual(self.links.getGeometry(1), answer)
+        self.assertEqual(self.links.getGeometries(1), answer)
 
-    def test_setGeometry(self):
+    def test_addGeometry(self):
         answer = [{'y': '3786.952000', 'x': '-282.116000',
                    'zOffset': '0.000000'},
                   {'y': '4007.169000', 'x': '-285.973000',
                    'zOffset': '0.000000'},
                   {'y': '2', 'x': '1', 'zOffset': '3'}]
-        self.assertEqual(self.links.setGeometry(1, [(1, 2, 3)]), answer)
+        self.assertEqual(self.links.addGeometry(1, [(1, 2, 3)]), answer)
+
+    def test_updateGeometry(self):
+        answer = [{'y': '3786.952000', 'x': '-282.116000',
+                   'zOffset': '0.000000'},
+                  {'y': '2.1', 'x': '1.1',
+                   'zOffset': '3.1'}]
+        self.assertEqual(self.links.updateGeometry(1, 1, (1.1, 2.1, 3.1)),
+                         answer)
 
     def test_getLanes(self):
         answer = [{'width': '3.500000'}, {'width': '3.500000'},
                   {'width': '3.500000'}]
         self.assertEqual(self.links.getLanes(3), answer)
 
-    def test_setLanes(self):
+    def test_addLane(self):
         answer = [{'width': '3.500000'}, {'width': '3.500000'},
                   {'width': '3.500000'}, {'width': '3.5'}, {'width': '3.5'}]
-        self.assertEqual(self.links.setLanes(3, [3.5, 3.5]), answer)
+        self.assertEqual(self.links.addLane(3, [3.5, 3.5]), answer)
+
+    def test_updateLane(self):
+        answer = [{'width': '3.500000'}, {'width': '5.0'},
+                  {'width': '3.500000'}]
+        self.assertEqual(self.links.updateLane(3, 1, 5.0), answer)
 
     def test_createLink(self):
         defaults = {'assumSpeedOncom': '60.00000', 'costPerKm': '0.00000',
@@ -135,8 +153,7 @@ class link_unittest(unittest.TestCase):
     def test_createConnector(self):
         defaults = {'assumSpeedOncom': '60.000000', 'costPerKm': '0.000000',
                     'direction': 'ALL', 'displayType': '1',
-                    'emergStopDist': '5.000000', 'from': {'lane': '4 1',
-                                                          'pos': '198.991000'},
+                    'emergStopDist': '5.000000', 'fromPos': '0.0000',
                     'gradient': '0.000000', 'hasOvtLn': 'false',
                     'isPedArea': 'false', 'linkBehavType': '1',
                     'linkEvalAct': 'false', 'linkEvalSegLen': '10.000000',
@@ -149,11 +166,30 @@ class link_unittest(unittest.TestCase):
                     'showClsfValues': 'true', 'showLinkBar': 'true',
                     'showVeh': 'true', 'surch1': '0.000000',
                     'surch2': '0.000000',
-                    'thickness': '0.000000', 'to': {'lane': '63 1',
-                                                    'pos': '0.271000'},
-                    'vehRecAct': 'true', 'lanes': '2'}
-        self.assertEqual(self.links.createConnector(2, 1, 3, 1, **defaults),
-                         defaults)
+                    'thickness': '0.000000', 'toPos': '5.000',
+                    'vehRecAct': 'true'}
+        answer = {'assumSpeedOncom': '60.000000', 'costPerKm': '0.000000',
+                  'direction': 'ALL', 'displayType': '1',
+                  'emergStopDist': '5.000000', 'from': {'connectLink': '2',
+                                                        'connectLane': '1',
+                                                        'pos': '0.0000'},
+                  'gradient': '0.000000', 'hasOvtLn': 'false',
+                  'isPedArea': 'false', 'linkBehavType': '1',
+                  'linkEvalAct': 'false', 'linkEvalSegLen': '10.000000',
+                  'lnChgDist': '200.000000', 'lnChgDistIsPerLn': 'false',
+                  'lnChgEvalAct': 'true', 'lookAheadDistOvt': '250.000000',
+                  'mesoFollowUpGap': '0.000000', 'mesoSpeed': '50.000000',
+                  'mesoSpeedModel': 'VEHICLEBASED', 'name': '', 'no': '90000',
+                  'ovtOnlyPT': 'false', 'ovtSpeedFact': '1.300000',
+                  'showClsfValues': 'true', 'showLinkBar': 'true',
+                  'showVeh': 'true', 'surch1': '0.000000',
+                  'surch2': '0.000000',
+                  'thickness': '0.000000', 'to': {'connectLink': '3',
+                                                  'connectLane': '1',
+                                                  'pos': '5.000'},
+                  'vehRecAct': 'true'}
+        self.assertEqual(self.links.createConnector(2, 1, 3, 1, 1, **defaults),
+                         answer)
 
     def test_removeLink(self):
         answer = {'showVeh': 'true', 'assumSpeedOncom': '60.000000',
@@ -194,12 +230,17 @@ class input_unittest(unittest.TestCase):
                    'cont': 'false', 'volType': 'STOCHASTIC'}]
         self.assertEqual(self.inputs.getVols(1), answer)
 
-    def test_setVols(self):
+    def test_addVol(self):
         answer = [{'volume': '1500.000000', 'timeInt': '1 0', 'vehComp': '1',
                    'cont': 'false', 'volType': 'STOCHASTIC'},
                   {'volume': '100', 'timeInt': '1 0', 'vehComp': '1',
                    'cont': 'false', 'volType': 'EXACT'}]
-        self.assertEqual(self.inputs.setVols(1, 100), answer)
+        self.assertEqual(self.inputs.addVol(1, 100), answer)
+
+    def test_updateVol(self):
+        answer = [{'volume': '1000.000000', 'timeInt': '1 0', 'vehComp': '1',
+                   'cont': 'false', 'volType': 'STOCHASTIC'}]
+        self.assertEqual(self.inputs.updateVol(1, 0, '1000.000000'), answer)
 
     def test_createInput(self):
         defaults = {'anmFlag': 'false', 'name': 'test', 'no': '6000'}
@@ -241,6 +282,21 @@ class staticrouting_unittest(unittest.TestCase):
         classes = [30, 40]
         self.assertEqual(self.routing.setVehicleClasses(10, classes), answer)
 
+    def test_getRoutes(self):
+        answer = [{'destLink': '3', 'destPos': '383.900000', 'name': '',
+                   'no': '1', 'relFlow': '2 0:64.000000'},
+                  {'destLink': '1', 'destPos': '208.500000', 'name': '',
+                   'no': '2', 'relFlow': '2 0:4.000000'},
+                  {'destLink': '13', 'destPos': '74.400000', 'name': '',
+                   'no': '3', 'relFlow': '2 0:6.000000'},
+                  {'destLink': '23', 'destPos': '100.600000', 'name': '',
+                   'no': '4', 'relFlow': '2 0:7.000000'},
+                  {'destLink': '4', 'destPos': '336.200000', 'name': '',
+                   'no': '5', 'relFlow': '2 0:17.000000'},
+                  {'destLink': '10', 'destPos': '157.200000', 'name': '',
+                   'no': '6', 'relFlow': '2 0:2.000000'}]
+        self.assertEqual(self.routing.getRoutes(1), answer)
+
     def test_getRoute(self):
         answer = {'no': '1', 'destLink': '3', 'destPos': '383.900000',
                   'relFlow': '2 0:64.000000', 'name': ''}
@@ -250,6 +306,11 @@ class staticrouting_unittest(unittest.TestCase):
         answer = {'no': '1', 'destLink': '3', 'destPos': '383.900000',
                   'relFlow': '2 0:64.000000', 'name': 'doggie'}
         self.assertEqual(self.routing.setRoute(1, 1, 'name', 'doggie'), answer)
+
+    def test_updateFlow(self):
+        answer = {'no': '1', 'destLink': '3', 'destPos': '383.900000',
+                  'relFlow': '2 0:100', 'name': ''}
+        self.assertEqual(self.routing.updateFlow(1, 1, 100), answer)
 
     def test_removeRouting(self):
         answer = {'name': '', 'no': '1', 'anmFlag': 'false', 'pos': '0.000000',
@@ -266,13 +327,17 @@ class staticrouting_unittest(unittest.TestCase):
         self.routing.removeRoute(1, 1)
         self.assertRaises(KeyError, self.routing.getRoute, 1, 'no', 1)
 
-    def test_getRouteSeq(self):
+    def test_getRouteSeqs(self):
         answer = [{'key': '10028'}]
-        self.assertEqual(self.routing.getRouteSeq(1, 2), answer)
+        self.assertEqual(self.routing.getRouteSeqs(1, 2), answer)
 
-    def test_setRouteSeq(self):
+    def test_addRouteSeq(self):
         answer = [{'key': '10028'}, {'key': '1029'}, {'key': '1030'}]
-        self.assertEqual(self.routing.setRouteSeq(1, 2, [1029, 1030]), answer)
+        self.assertEqual(self.routing.addRouteSeq(1, 2, [1029, 1030]), answer)
+
+    def test_updateRouteSeq(self):
+        answer = [{'key': '100'}]
+        self.assertEqual(self.routing.updateRouteSeq(1, 2, 0, 100), answer)
 
     def test_createRouting(self):
         defaults = {'allVehTypes': 'false', 'anmFlag': 'false', 'no': '9999',
