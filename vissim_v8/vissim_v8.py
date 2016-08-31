@@ -713,7 +713,7 @@ class OSM(Vissim):
             Input: WGS84 lat/lng
             Output: x,y in meters
         """
-        extent = 20015100  # height in meters of the VISSIM map
+        extent = 20015085  # height/width in meters of the VISSIM map
         x = lng * extent / 180.0
         y = (math.log(math.tan((90 + lat) * math.pi / 360.0)) /
              (math.pi / 180.0))
@@ -725,7 +725,7 @@ class OSM(Vissim):
             Input: xy
             Output: correctly scaled xy
         """
-        scale = math.cosh(math.radians(self.refLat))
+        scale = 1 / math.cos(math.radians(self.refLat))
         scaleX = str((x - self.refX) / scale)
         scaleY = str((y - self.refY) / scale)
         return (scaleX, scaleY, '0')
@@ -816,16 +816,16 @@ class OSM(Vissim):
         else:
             return False
 
-    def isNewWay(self, prev, n, attr):
+    def isNewWay(self, fromN, toN, prevAttr):
         """ Determine if the current edge is a new way
             Input: edge nodes, current attribute
             Output: boolean
         """
-        newID = self.G.edge[prev][n]['id']
-        oldID = attr.get('id')
-        if attr == {}:
+        if prevAttr is None:
             return False
-        elif newID == oldID:
+        newID = self.G.edge[fromN][toN]['id']
+        oldID = prevAttr.get('id')
+        if newID == oldID:
             return False
         else:
             return True
@@ -838,11 +838,11 @@ class OSM(Vissim):
         else:
             return False
 
-    def isDiscontinuous(self, n, nodeList):
-        if nodeList == []:
+    def isDiscontinuous(self, n, coords):
+        if coords == []:
             return False
         else:
-            if nodeList[-1][1] != n:
+            if coords[-1][1] != n:
                 return True
             else:
                 return False
@@ -872,19 +872,24 @@ class OSM(Vissim):
         """
         links = {}
         coords = []
-        attr = {}
-        for prev, n in nx.dfs_edges(self.G, source=startNode):
-            (if self.isNewWay(prev, n, attr) or
-             self.isDiscontinuous(prev, coords) or
-             self.isIntersection(prev)):
-                self.createLinkEntry(coords, attr, links)
+        prevAttr = None
+        currAttr = None
+        # fromPrev, toPrev = None, None
+        for fromN, toN in nx.dfs_edges(self.G, source=startNode):
+            currAttr = self.G.edge[fromN][toN]
+            if (self.isNewWay(fromN, toN, prevAttr) or
+                    self.isDiscontinuous(fromN, coords) or
+                    self.isIntersection(fromN)):
+                self.createLinkEntry(coords, prevAttr, links)
                 coords = []
-            attr = self.G.edge[prev][n]
-            coords.append((prev, n))
-            if n in self.getEdgeNodes():
+            # if toPrev in self.getEdgeNodes():
                 # If we encounter the edge of a model
-                self.createLinkEntry(coords, attr, links)
-                coords = []
+            #    self.createLinkEntry(coords, currAttr, links)
+            #    coords = []
+            coords.append((fromN, toN))
+            prevAttr = currAttr
+            # fromPrev, toPrev = fromN, toN
+        self.createLinkEntry(coords, currAttr, links)
         return links
 
     def createLinkDict(self):
