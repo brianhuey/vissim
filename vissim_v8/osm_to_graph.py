@@ -70,8 +70,11 @@ def read_osm(filename_or_stream, only_roads=True):
     def addEdges(w):
         attr = w.tags
         attr['id'] = w.id
-        if w.tags['highway'] != 'footway':
-            G.add_path(w.nds, **attr)
+        if w.tags.get('highway') != 'footway':
+            if w.tags.get('oneway') == '-1':
+                G.add_path(reversed(w.nds), **attr)
+            else:
+                G.add_path(w.nds, **attr)
             """
             if 'oneway' not in w.tags and w.tags['highway'] != 'motorway':
                 G.add_path(reversed(w.nds), **attr)
