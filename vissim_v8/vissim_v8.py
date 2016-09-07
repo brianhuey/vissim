@@ -23,6 +23,7 @@ class Vissim(object):
         self.links = Links(self.data, self.params)
         self.inputs = Inputs(self.data, self.params)
         self.routing = StaticRouting(self.data, self.params)
+        self.defaultWidth = 3.6
 
     def _load(self, filename):
         """ Load XML file """
@@ -429,7 +430,7 @@ class Links(Vissim):
         parent = './links'
         child = self.path + '[@no="' + str(linkNum) + '"]'
         self._removeChild(parent, child)
-        self.getParams()
+        self._getParams()
 
 
 class Inputs(Vissim):
@@ -517,8 +518,8 @@ class Inputs(Vissim):
 
 class StaticRouting(Vissim):
     def __init__(self, data, params):
-        self.path = './vehicleRoutingDecisionsStatic/' \
-                    'vehicleRoutingDecisionStatic'
+        self.path = ('./vehicleRoutingDecisionsStatic/'
+                     'vehicleRoutingDecisionStatic')
         self.data = data
         self.params = params
         self.types = {'allVehTypes': bool, 'anmFlag': bool,
@@ -702,17 +703,27 @@ class StaticRouting(Vissim):
 class OSM(Vissim):
     def __init__(self, osmFile):
         self.G = read_osm(osmFile)
+        self.v = Vissim()
         self.refLat, self.refLng = self.getRefLatLng()
         self.refX, self.refY = self.latLngToMeters(self.refLat, self.refLng)
+        self.intersections = self.createIntersectionDict()
         self.xy = self.createLinkDict()
-        self.v = Vissim()
         self.v.createReference(self.refX, self.refY)
+
+    def getRefLatLng(self):
+        """ Get reference lat/lng for xy conversion.
+            Input: Graph
+            Output: lat, long tuple
+        """
+        latlng = self.G.node.itervalues().next()
+        return latlng['lat'], latlng['lon']
 
     def latLngToMeters(self, lat, lng):
         """ Convert lat/lng to meters from 0,0 point on WGS84 map.
             Input: WGS84 lat/lng
             Output: x,y in meters
         """
+        assert abs(lng) <= 180, '%s exceeds longitudinal domain' % (lng)
         extent = 20015085  # height/width in meters of the VISSIM map
         x = lng * extent / 180.0
         y = (math.log(math.tan((90 + lat) * math.pi / 360.0)) /
@@ -720,18 +731,25 @@ class OSM(Vissim):
         y = y * extent / 180.0
         return x, y
 
-    def scaleXY(self, x, y):
+    def latLngToScaledMeters(self, lat, lng):
         """ Apply Mercator scaling factor based on latitude to xy points.
             Input: xy
             Output: correctly scaled xy
         """
+        x, y = self.latLngToMeters(lat, lng)
         scale = 1 / math.cos(math.radians(self.refLat))
-        scaleX = str((x - self.refX) / scale)
-        scaleY = str((y - self.refY) / scale)
+        scaleX = ((x - self.refX) / scale)
+        scaleY = ((y - self.refY) / scale)
         return (scaleX, scaleY, '0')
 
-    def isModelEdge(self, n):
-        """ If a node has only one neighbor node, it's at the edge of the model.
+    def getLatLng(self, n):
+        """ Return lat/lng tuple for a given node.
+        """
+        return self.G.node[n]['lat'], self.G.node[n]['lon']
+
+    def isExterior(self, n):
+        """ If a node has only one neighbor node, it's at the exterior of the
+            model.
         """
         if len(set(self.G.successors(n) + self.G.predecessors(n))) == 1:
             # These are one-way start points, or bi-directional end points
@@ -739,32 +757,19 @@ class OSM(Vissim):
         else:
             return False
 
-    def convertLatLng(self, latLng):
-        """ Convert WGS84 lat/lng to VISSIM's reference coordinate system
-            Input: list of WGS84 lat/lng
-            Output: list of x, y in meters relative to reference point
-        """
-        xy = [self.latLngToMeters(lat, lng) for lng, lat in latLng]
-        return [self.scaleXY(x, y) for x, y in xy]
-
-    def getLatLng(self, n):
-        """ Return lat/lng tuple for a given node.
-        """
-        return (self.G.node[n]['lon'], self.G.node[n]['lat'])
-
-    def getEdgeNodes(self):
-        """ Get a list of nodes at the edge of the graph.
+    def getExteriorNodes(self):
+        """ Get a list of nodes that are on the exterior.
         """
         nodes = []
         for n in self.G.nodes():
-            if self.isModelEdge(n):
+            if self.isExterior(n):
                 nodes.append(n)
         return nodes
 
     def getStartNodes(self):
         """ Get a list of nodes that do not overlap when traversed.
         """
-        edgeNodes = self.getEdgeNodes()
+        edgeNodes = self.getExteriorNodes()
         for node in edgeNodes:
             for prev, n in nx.dfs_edges(self.G, source=node):
                 if n in edgeNodes:
@@ -780,23 +785,23 @@ class OSM(Vissim):
         lanes = attr.get('lanes')
         if self.isOneway(attr):
             if lanes:
-                return (int(lanes), 0)
+                return int(lanes), 0
             else:
                 # If no lane spec, return default.
-                return (1, 0)
+                return 1, 0
         else:
             forward = attr.get('lanes:forward')
             backward = attr.get('lanes:backward')
             if forward and backward:
-                return (int(forward), int(backward))
+                return int(forward), int(backward)
             elif lanes:
                 if int(lanes) % 2 > 0:
                     raise ValueError('Number of lanes is not evenly divisible')
                 else:
-                    return (int(lanes)/2, int(lanes)/2)
+                    return int(lanes)/2, int(lanes)/2
             else:
                 # If no lane spec, return default.
-                return (1, 1)
+                return 1, 1
 
     def isOneway(self, attr):
         """ Determine if link is oneway based on OSM attributes.
@@ -838,32 +843,153 @@ class OSM(Vissim):
         else:
             return False
 
-    def isDiscontinuous(self, n, coords):
-        if coords == []:
-            return False
-        else:
-            if coords[-1][1] != n:
-                return True
-            else:
-                return False
-
-    def getRefLatLng(self):
-        """ Get reference lat/lng for xy conversion.
-            Input: Graph
-            Output: lat, long tuple
+    def compassBearing(self, pointA, pointB):
+        """ Calculates the bearing between two points. Source:
+            https://gist.github.com/jeromer/2005586
+            Input:
+            Output: The bearing in degrees
         """
-        latlng = self.G.node.itervalues().next()
-        return (latlng['lat'], latlng['lon'])
+        if (type(pointA) != tuple) or (type(pointB) != tuple):
+            raise TypeError("Only tuples are supported as arguments")
+        lat1 = math.radians(pointA[0])
+        lat2 = math.radians(pointB[0])
+        diffLong = math.radians(pointB[1] - pointA[1])
+        x = math.sin(diffLong) * math.cos(lat2)
+        y = (math.cos(lat1) * math.sin(lat2) - (math.sin(lat1) *
+             math.cos(lat2) * math.cos(diffLong)))
+        initial = math.atan2(x, y)
+        # Now we have the initial bearing but math.atan2 return values
+        # from -180 to + 180 which is not what we want for a compass bearing
+        # The solution is to normalize the initial bearing as shown below
+        initial = math.degrees(initial)
+        compass = round((initial + 360) % 360, 1)
+        return compass
 
-    def createLinkEntry(self, coords, attr, links):
-        """ Create new entry in links dictionary.
+    def getIntersection(self, node):
+        """ Get direction, bearing and lane information for all intersection
+            edges. Bearing is calculated from the common intersection node.
+            Input: intersection node
+            Output: dictionary of intersection attributes
+        """
+        intersection = {}
+        nodePoint = (self.G.node[node]['lat'], self.G.node[node]['lon'])
+        for n in self.G.successors(node):
+            attr = self.G.edge[node][n]
+            nPoint = (self.G.node[n]['lat'], self.G.node[n]['lon'])
+            intersection[n] = {'beginning': True, 'lanes':
+                               attr.get('lanes', 1), 'bearing':
+                               self.compassBearing(nodePoint, nPoint),
+                               'oneway': self.isOneway(attr), 'forward':
+                               attr.get('lanes:forward', 1), 'backward':
+                               attr.get('lanes:backward', 1)}
+        for n in self.G.predecessors(node):
+            attr = self.G.edge[n][node]
+            nPoint = (self.G.node[n]['lat'], self.G.node[n]['lon'])
+            intersection[n] = {'beginning': False, 'lanes':
+                               attr.get('lanes', 1), 'bearing':
+                               self.compassBearing(nodePoint, nPoint),
+                               'oneway': self.isOneway(attr), 'forward':
+                               attr.get('lanes:forward', 1), 'backward':
+                               attr.get('lanes:backward', 1)}
+        return intersection
+
+    def getIntersections(self, startNode):
+        """ Use depth-first search to map intersection nodes and lane widths.
+            Input: graph, startNode
+            Output: dictionary mapping of intersection nodes
+        """
+        intersections = {}
+        for fromN, toN in nx.dfs_edges(self.G, source=startNode):
+            if self.isIntersection(toN):
+                intersections[toN] = self.getIntersection(toN)
+        return intersections
+
+    def calcCrossSection(self, attr, bearing, direction='left'):
+        """ Calculate the positional offsets for two-way and one-way links in
+            order to correctly offset the link endpoints.
+            Input: intersection attribute, bearing, direction of cross street.
+            Output: Adjusted endpoint offset distance
+        """
+        if attr['oneway']:
+            return round(abs(int(attr['lanes']) * self.v.defaultWidth *
+                             math.sin(math.radians(bearing))) / 2.0, 1)
+        else:
+            if direction == 'left':
+                if attr['beginning']:
+                    lane = 'forward'
+                else:
+                    lane = 'backward'
+            elif direction == 'right':
+                if attr['beginning']:
+                    lane = 'backward'
+                else:
+                    lane = 'forward'
+            return round(abs(int(attr[lane]) * self.v.defaultWidth *
+                             math.sin(math.radians(bearing))), 1)
+
+    def getCrossStreets(self, intN, fromN, width):
+        """ Get cross street lane width information.
+            Input: node pairs approaching intersection
+            Output: cross section information
+        """
+        intersection = self.intersections[intN]
+        startBearing = intersection[fromN]['bearing']
+        minBearing, maxBearing = -180, 180
+        left, right = None, None
+        for n, attr in intersection.items():
+            diff = ((((startBearing-attr['bearing']) % 360)+540) % 360) - 180
+            if (diff > 0 and diff < maxBearing):
+                    left = n
+                    maxBearing = diff
+            elif (diff < 0 and diff > minBearing):
+                    right = n
+                    minBearing = diff
+        if left:
+            leftLane = self.calcCrossSection(intersection[left], maxBearing)
+        else:
+            leftLane = 0
+        if right:
+            rightLane = self.calcCrossSection(intersection[right], minBearing,
+                                              direction='right')
+        else:
+            rightLane = 0
+        return max([leftLane, rightLane])
+
+    def createIntersectionDict(self):
+        """ Create a dictionary for each link with centerline values and link
+            attributes.
+        """
+        intersections = {}
+        startNodes = self.getStartNodes()
+        for n in startNodes:
+            intersections.update(self.getIntersections(n))
+        return intersections
+
+    def offsetEndpoint(self, coords, distance, beginning=True):
+        """ Pull back end point of way in order to create VISSIM intersection.
+            Input: list of nodes, distance, beginning or end of link
+            Output: transformed list of nodes
+        """
+        if beginning:
+            a = np.array(coords[1], dtype='float')
+            b = np.array(coords[0], dtype='float')
+        if not beginning:
+            a = np.array(coords[-2], dtype='float')
+            b = np.array(coords[-1], dtype='float')
+        assert math.sqrt(sum((b-a)**2)) > distance, ('distance exceeds node '
+                                                     'pair length')
+        db = (b-a)/np.linalg.norm(b-a)*distance
+        return b-db
+
+    def getLink(self, coords, attr, links):
+        """ Get link attributes and points.
             Input: coordinate list and attribute dictionary
             Output: link dictionary
         """
-        latlng = list(OrderedDict.fromkeys([self.getLatLng(e) for l in
-                                            coords for e in l]))
+        latlng = list(OrderedDict.fromkeys([(str(a), str(b), str(c)) for
+                                            a, b, c in coords]))
         wayID = attr['id']
-        links[wayID] = {'links': self.convertLatLng(latlng), 'attr': attr}
+        links[wayID] = {'links': latlng, 'attr': attr}
 
     def getLinks(self, startNode):
         """ Begin with startNode and end at an intersection
@@ -874,22 +1000,25 @@ class OSM(Vissim):
         coords = []
         prevAttr = None
         currAttr = None
-        # fromPrev, toPrev = None, None
         for fromN, toN in nx.dfs_edges(self.G, source=startNode):
             currAttr = self.G.edge[fromN][toN]
             if (self.isNewWay(fromN, toN, prevAttr) or
-                    self.isDiscontinuous(fromN, coords) or
                     self.isIntersection(fromN)):
-                self.createLinkEntry(coords, prevAttr, links)
+                self.getLink(coords, prevAttr, links)
                 coords = []
-            # if toPrev in self.getEdgeNodes():
-                # If we encounter the edge of a model
-            #    self.createLinkEntry(coords, currAttr, links)
-            #    coords = []
-            coords.append((fromN, toN))
+            coords.append(self.latLngToScaledMeters(*self.getLatLng(fromN)))
+            coords.append(self.latLngToScaledMeters(*self.getLatLng(toN)))
+            if fromN in self.intersections:
+                distance = self.getCrossStreets(fromN, toN,
+                                                self.v.defaultWidth)
+                coords[0] = self.offsetEndpoint(coords, distance)
+            if toN in self.intersections:
+                distance = self.getCrossStreets(toN, fromN,
+                                                self.v.defaultWidth)
+                coords[-1] = self.offsetEndpoint(coords, distance,
+                                                 beginning=False)
             prevAttr = currAttr
-            # fromPrev, toPrev = fromN, toN
-        self.createLinkEntry(coords, currAttr, links)
+        self.getLink(coords, currAttr, links)
         return links
 
     def createLinkDict(self):
@@ -909,12 +1038,12 @@ class OSM(Vissim):
             Output: transformed list of xy points
         """
         def perp(a, dist, clockwise=True):
-            norm = (a/np.linalg.norm(a)) * dist
+            norm = a/np.linalg.norm(a)*dist
             b = np.empty_like(norm)
             if clockwise:
                 b[0] = norm[1]
                 b[1] = -norm[0]
-            else:
+            elif not clockwise:
                 b[0] = -norm[1]
                 b[1] = norm[0]
             return b
@@ -949,20 +1078,20 @@ class OSM(Vissim):
             attr = value['attr']
             links = value['links']
             if self.isOneway(attr):
-                lanes = self.getLanes(attr)[0] * [3.6]
+                lanes = self.getLanes(attr)[0] * [self.v.defaultWidth]
                 self.v.links.createLink(**{'point3D': links, 'lane': lanes,
                                            'name': attr['id']})
             else:
                 lanesFwd, lanesBkd = self.getLanes(attr)
-                fwd = (3.6 * lanesFwd) / 2.0
-                bkd = (3.6 * lanesBkd) / 2.0
+                fwd = (self.v.defaultWidth * lanesFwd) / 2.0
+                bkd = (self.v.defaultWidth * lanesBkd) / 2.0
                 linksFwd = self.offsetLink(links, fwd)
                 linksBkd = self.offsetLink(list(reversed(links)), bkd)
                 self.v.links.createLink(**{'point3D': linksFwd, 'lane':
-                                           lanesFwd * [3.6],
+                                           lanesFwd * [self.v.defaultWidth],
                                            'name': attr['id']})
                 self.v.links.createLink(**{'point3D': linksBkd, 'lane':
-                                           lanesBkd * [3.6],
+                                           lanesBkd * [self.v.defaultWidth],
                                            'name': attr['id']})
 
     def drawLinks(self, links):

@@ -1,12 +1,12 @@
 import unittest
 import vissim_v8 as vissim
 
-network = 'test_networks/Busmall.inpx'
-
+network_path = 'test_networks/Busmall.inpx'
+osm_path = 'test_networks/temescal.osm'
 
 class link_unittest(unittest.TestCase):
     def setUp(self):
-        self.v = vissim.Vissim(network)
+        self.v = vissim.Vissim(network_path)
         self.links = self.v.links
         self.maxDiff = None
 
@@ -214,7 +214,7 @@ class link_unittest(unittest.TestCase):
 
 class input_unittest(unittest.TestCase):
     def setUp(self):
-        self.v = vissim.Vissim(network)
+        self.v = vissim.Vissim(network_path)
         self.inputs = self.v.inputs
 
     def test_getInput(self):
@@ -257,7 +257,7 @@ class input_unittest(unittest.TestCase):
 
 class staticrouting_unittest(unittest.TestCase):
     def setUp(self):
-        self.v = vissim.Vissim(network)
+        self.v = vissim.Vissim(network_path)
         self.routing = self.v.routing
 
     def test_getRouting(self):
@@ -359,6 +359,10 @@ class staticrouting_unittest(unittest.TestCase):
                   'destLink': '12'}
         self.assertEqual(self.routing.createRoute(9999, 12, **routeDefaults),
                          answer)
+
+class osm_unittest(unittest.TestCase):
+    def setUp(self):
+        self.osm = vissim.OSM(osm_path)
 
 
 if __name__ == '__main__':
