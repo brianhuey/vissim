@@ -360,6 +360,7 @@ class staticrouting_unittest(unittest.TestCase):
         self.assertEqual(self.routing.createRoute(9999, 12, **routeDefaults),
                          answer)
 
+
 class osm_unittest(unittest.TestCase):
     def setUp(self):
         self.osm = vissim.OSM(osm_path)
@@ -369,7 +370,8 @@ if __name__ == '__main__':
     v = 3
     links = unittest.TestLoader().loadTestsFromTestCase(link_unittest)
     inputs = unittest.TestLoader().loadTestsFromTestCase(input_unittest)
-    routing = unittest.TestLoader().loadTestsFromTestCase(staticrouting_unittest)
+    routing = (unittest.TestLoader().loadTestsFromTestCase
+               (staticrouting_unittest))
     unittest.TextTestRunner(verbosity=v).run(links)
     unittest.TextTestRunner(verbosity=v).run(inputs)
     unittest.TextTestRunner(verbosity=v).run(routing)
