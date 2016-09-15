@@ -25,45 +25,12 @@ python setup_v8.py install
 ```python
 import vissim_v8 as vissim
 v = vissim.Vissim('vissim_v8/example/Busmall.inpx')
+links = v.Links
 ```
 Access VISSIM object data:
 ```
-links = vissim.Links
-# Access data for link 2
->>> links[2]
->>> {'assumSpeedOncom': '60.000000',
- 'costPerKm': '0.000000',
- 'direction': 'ALL',
- 'displayType': '1',
- 'emergStopDist': '5.000000',
- 'gradient': '0.000000',
- 'hasOvtLn': 'false',
- 'isPedArea': 'false',
- 'lane': ['3.500000', '3.500000'],
- 'level': '1',
- 'linkBehavType': '1',
- 'linkEvalAct': 'false',
- 'linkEvalSegLen': '10.000000',
- 'lnChgDist': '200.000000',
- 'lnChgDistIsPerLn': 'false',
- 'lnChgEvalAct': 'true',
- 'lookAheadDistOvt': '250.000000',
- 'mesoFollowUpGap': '0.000000',
- 'mesoSpeed': '50.000000',
- 'mesoSpeedModel': 'VEHICLEBASED',
- 'name': '',
- 'no': '2',
- 'ovtOnlyPT': 'false',
- 'ovtSpeedFact': '1.300000',
- 'point3D': [('-530.781000', '3904.459000', '0.000000'),
-  ('-178.082000', '3905.115000', '0.000000')],
- 'showClsfValues': 'true',
- 'showLinkBar': 'true',
- 'showVeh': 'true',
- 'surch1': '0.000000',
- 'surch2': '0.000000',
- 'thickness': '0.000000',
- 'vehRecAct': 'true'}
+# Will output data for link 2
+links[2]
 ```
 Create new VISSIM objects:
 ```
