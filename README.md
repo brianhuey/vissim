@@ -3,6 +3,7 @@
 ##VISSIM v8.x (/vissim_v8)
 
 ###Current VISSIM objects supported:
+- VISSIM network attributes and parameters
 - Vehicle Inputs
 - Links
 - Static Route Decisions
@@ -23,13 +24,20 @@ python setup_v8.py install
 ###Usage:
 ```python
 import vissim_v8 as vissim
-
-v = vissim.Vissim('example.inpx')
-links = vissim.Links
+v = vissim.Vissim('vissim_v8/example/Busmall.inpx')
+```
+Access VISSIM object data:
+```
+links = vissim.Links[2]
+```
+Create new VISSIM objects:
+```
 # Create link from coord 0,0 to 10,15
 coords = {'points3D': [(0,0,0), (10,15,0)]}
 links.createLink(**coords)
-# Export loaded link data and new link
+```
+Export VISSIM model to new file:
+```
 v.export('example_new.inpx')
 ```
 
