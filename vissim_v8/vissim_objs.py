@@ -1,5 +1,11 @@
 #!/usr/bin/env python
-""" VISSIM Tools """
+""" VISSIM Objects
+    The following objects are defined in the library:
+    Vissim - base network object
+    Links - network links and connectors
+    Input - vehicle demands
+    StaticRouting - vehicle routing decisions and routes
+"""
 from lxml import etree
 from copy import deepcopy
 from scipy.spatial.distance import cdist
@@ -15,9 +21,9 @@ class Vissim(object):
             self.data = self._load(filename)
         self.params = None
         self._getParams()
-        self.links = Links(self.data, self.params)
-        self.inputs = Inputs(self.data, self.params)
-        self.routing = StaticRouting(self.data, self.params)
+        self.Links = Links(self.data, self.params)
+        self.Inputs = Inputs(self.data, self.params)
+        self.StaticRouting = StaticRouting(self.data, self.params)
         self.defaultWidth = 3.6
 
     def _load(self, filename):
@@ -70,6 +76,14 @@ class Vissim(object):
         """
         return str(connectLink) + ' ' + str(connectLane)
 
+    def _listAttributes(self, attr, children=None):
+        """ List keys for iterable.
+        """
+        child = '' if children is None else children
+        xpath = (str(self.path) + child + '/@' + str(attr))
+        data = self.data.xpath(xpath)
+        return iter(data)
+
     def _getAttributes(self, attr, value, children=None, duplicate=True):
         """ Uses XPath to return attributes of Vissim object.
             Input: root attribute, root value, path to children (optional),
@@ -121,6 +135,7 @@ class Vissim(object):
         path = (self.path + '[@' + str(attr) + '="' + str(value) + '"]' +
                 str(child))
         data = self.data.xpath(path)
+        setValue = str(setValue)
         if len(data) > 1:
             raise KeyError('Number of elements > 1')
         if setAttr == 'connectLink' and 'lane' in data[0].attrib.keys():
@@ -132,7 +147,9 @@ class Vissim(object):
             connectLane = attr['connectLink']
             data[0].set('lane', self._laneConcat(connectLink, setValue))
         elif setAttr in data[0].attrib.keys():
-            data[0].set(setAttr, str(setValue))
+            if setAttr == 'no' and int(setValue) in self.params[self.name]:
+                raise KeyError('Numbering conflict')
+            data[0].set(setAttr, setValue)
             if setAttr == 'no':
                 self._getParams()
         else:
@@ -154,6 +171,11 @@ class Vissim(object):
             etree.SubElement(data[0], element, attrib=elemAttr)
             if 'no' in elemAttr:
                 self._getParams()
+
+    def _removeElements(self, path):
+            data = self.data.xpath(self.path + path)
+            for child in data:
+                data.remove(child)
 
     def _removeChild(self, parent, child):
         data = self.data.xpath(parent)[0]
@@ -204,6 +226,7 @@ class Vissim(object):
 
 class Links(Vissim):
     def __init__(self, data, params):
+        self.name = 'link'
         self.path = './links/link'
         self.data = data
         self.params = params
@@ -221,6 +244,17 @@ class Links(Vissim):
                       'showVeh': bool, 'surch1': float, 'surch2': float,
                       'thickness': float, 'vehRecAct': bool, 'geometry': list,
                       'lanes': list}
+
+    def __iter__(self):
+        return self._listAttributes('no')
+
+    def __getitem__(self, idx):
+        links = self.getLink(idx)
+        geos = [(i['x'], i['y'], i['zOffset']) for i in
+                self.getGeometries(idx)]
+        lanes = [i['width'] for i in self.getLanes(idx)]
+        links.update({'point3D': geos, 'lane': lanes})
+        return links
 
     def getLink(self, linkNum):
         """ Get attributes of link.
@@ -247,7 +281,6 @@ class Links(Vissim):
             Output: Changed link attribute
         """
         self._setAttribute('no', linkNum, attr, value)
-        return self.getLink(linkNum)
 
     def setConnector(self, linkNum, attr, value, fromLink=True):
         if fromLink:
@@ -265,11 +298,20 @@ class Links(Vissim):
         children = '/geometry/points3D/point3D'
         return self._getChildren('no', linkNum, children)
 
+    def removeGeometry(self, linkNum):
+        """ Remove existing geometry for a given link.
+            Input: link number
+            Output: Removed <point3D> elements from a link.
+        """
+        self.removeElements('[@no="' + str(linkNum) +
+                            '"]/geometry/points3D/point3D')
+
     def addGeometry(self, linkNum, points):
         """ Add points to link's point set.
             Input: link number, list of x,y,z tuples
             Output: Added <point3D> elements to <points3D> elements
         """
+        self.removeGeometry(linkNum)
         children = '/geometry/points3D'
         if isinstance(points, list):
             for x, y, z in points:
@@ -287,12 +329,17 @@ class Links(Vissim):
         children = '/geometry/points3D/point3D'
         geos = self._getChildren('no', linkNum, children, duplicate=False)
         if len(geos) > index:
-            geos[index]['x'] = str(point[0])
-            geos[index]['y'] = str(point[1])
-            geos[index]['zOffset'] = str(point[2])
-            return self.getGeometries(linkNum)
+            geos[index].replace({'x': point[0], 'y': point[1],
+                                 'zOffset': point[2]})
         else:
             raise IndexError('Index value does not exist in geos list')
+
+    def removeLanes(self, linkNum):
+        """ Remove existing lanes for a given link.
+            Input: link number
+            Output: Removed <lane> elements from a link.
+        """
+        self.removeElements('[@no="' + str(linkNum) + '"]/lanes/lane')
 
     def getLanes(self, linkNum):
         """ Get lane widths.
@@ -308,6 +355,7 @@ class Links(Vissim):
             Output: Added <lane> elements to <lanes> element
         """
         if isinstance(lanes, list):
+            self.removeLanes(linkNum)
             for width in lanes:
                 self._setChild('no', linkNum, 'lane',
                                {'width': width}, '/lanes')
@@ -323,8 +371,7 @@ class Links(Vissim):
         lanes = self._getChildren('no', linkNum, '/lanes/lane',
                                   duplicate=False)
         if len(lanes) > index:
-            lanes[index]['width'] = str(width)
-            return self.getLanes(linkNum)
+            lanes[index].replace({'width': str(width)})
         else:
             raise IndexError('Index value does not exist in lanes list')
 
@@ -431,10 +478,19 @@ class Links(Vissim):
 
 class Inputs(Vissim):
     def __init__(self, data, params):
+        self.name = 'input'
         self.path = './vehicleInputs/vehicleInput'
         self.data = data
         self.params = params
         self.types = {'anmFlag': bool, 'link': int, 'name': str, 'no': int}
+
+    def __iter__(self):
+        return self._listAttributes('no')
+
+    def __getitem__(self, idx):
+        inps = self.getInput('no', idx)
+        inps.update({'timeIntervalVehVolume': self.getVols(idx)})
+        return inps
 
     def getInput(self, attr, value):
         """ Get attributes for a given input based on input attribute value.
@@ -457,7 +513,10 @@ class Inputs(Vissim):
             Output: List of volume profiles
         """
         children = '/timeIntVehVols/timeIntervalVehVolume'
-        return self._getChildren('no', inputNum, children)
+        try:
+            return self._getChildren('no', inputNum, children)
+        except:
+            return []
 
     def addVol(self, inputNum, vol, **kwargs):
         """ Add a new volume profile to input.
@@ -485,6 +544,23 @@ class Inputs(Vissim):
             return self.getVols(inputNum)
         else:
             raise IndexError('Index value does not exist in volume list')
+
+    def clearVols(self, vehComp=None):
+        """ Set all input demands to zero.
+            Input: None
+            Output: Changed input demands
+        """
+        inputs = self._listAttributes('no')
+        for inputNum in inputs:
+            child = ('[@no="' + inputNum +
+                     '"]/timeIntVehVols/timeIntervalVehVolume')
+            vols = self._listAttributes('vehComp', child)
+            for idx, comp in enumerate(vols):
+                if vehComp:
+                    if comp == vehComp:
+                        self.updateVol(inputNum, idx, 0)
+                else:
+                    self.updateVol(inputNum, idx, 0)
 
     def createInput(self, linkNum, vol, **kwargs):
         """ Create a new input in the model.
@@ -514,6 +590,7 @@ class Inputs(Vissim):
 
 class StaticRouting(Vissim):
     def __init__(self, data, params):
+        self.name = 'vehicleRoutingDecisionStatic'
         self.path = ('./vehicleRoutingDecisionsStatic/'
                      'vehicleRoutingDecisionStatic')
         self.data = data
@@ -522,6 +599,18 @@ class StaticRouting(Vissim):
                       'combineStaRoutDec': bool, 'link': int, 'name': str,
                       'no': int, 'pos': float, 'destLink': int,
                       'destPos': float, 'relFlow': float}
+
+    def __iter__(self):
+        return self._listAttributes('no')
+
+    def __getitem__(self, idx):
+        routing = self.getRouting('no', idx)
+        routes = self.getRoutes(idx)
+        for k, v in routes.items():
+            v.update({'linkSeq': self.getRouteSeqs(idx, k)})
+        routing.update({'vehClasses': self.getVehicleClasses(idx),
+                        'vehicleRouteStatic': routes})
+        return routing
 
     def removeRoute(self, routingNum, routeNum):
         """ Remove an existing route from the model.
@@ -560,7 +649,11 @@ class StaticRouting(Vissim):
             Output: list of vehicle classes
         """
         children = '/vehClasses/intObjectRef'
-        return self._getChildren('no', routingNum, children)
+        try:
+            classes = self._getChildren('no', routingNum, children)
+            return [i['key'] for i in classes]
+        except KeyError:
+            return []
 
     def setVehicleClasses(self, routingNum, classes):
         """ Set vehicle classes.
@@ -581,7 +674,12 @@ class StaticRouting(Vissim):
             Output: list of routes
         """
         children = '/vehRoutSta/vehicleRouteStatic'
-        return self._getChildren('no', routingNum, children)
+        try:
+            routes = {i['no']: i for i in
+                      self._getChildren('no', routingNum, children)}
+            return routes
+        except:
+            return {}
 
     def getRoute(self, routingNum, attr, value):
         """ Get attributes for a given route based on attribute value.
@@ -600,6 +698,23 @@ class StaticRouting(Vissim):
         child = '/vehRoutSta/vehicleRouteStatic[@no="' + str(routeNum) + '"]'
         self._setAttribute('no', routingNum, attr, value, child)
         return self.getRoute(routingNum, 'no', routeNum)
+
+    def clearFlows(self, vehClass=None):
+        """ Set all relative flows to zero.
+            Input: None
+            Output: Changed flow values
+        """
+        routings = self._listAttributes('no')
+        for routingNum in routings:
+            if vehClass:
+                classes = self.getVehicleClasses(routingNum)
+                if str(vehClass) not in classes:
+                    continue
+            child = ('[@no="' + routingNum +
+                     '"]/vehRoutSta/vehicleRouteStatic')
+            routes = self._listAttributes('no', child)
+            for routeNum in routes:
+                self.updateFlow(routingNum, routeNum, 0)
 
     def updateFlow(self, routingNum, routeNum, volume):
         """ Update the relative flow value of a given route in a routing
@@ -622,7 +737,11 @@ class StaticRouting(Vissim):
         """
         children = ('/vehRoutSta/vehicleRouteStatic[@no="' + str(routeNum) +
                     '"]/linkSeq/intObjectRef')
-        return self._getChildren('no', routingNum, children)
+        try:
+            seqs = self._getChildren('no', routingNum, children)
+            return [i['key'] for i in seqs]
+        except KeyError:
+            return []
 
     def addRouteSeq(self, routingNum, routeNum, links):
         """ Set sequence of links that a given route traverses.

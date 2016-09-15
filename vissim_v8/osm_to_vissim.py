@@ -452,7 +452,7 @@ class OSM(Vissim):
             attr = value['attr']
             point3D = value['point3D']
             lanes = int(value['laneNumber']) * [self.v.defaultWidth]
-            self.v.links.createLink(**{'point3D': point3D, 'lane': lanes,
+            self.v.Links.createLink(**{'point3D': point3D, 'lane': lanes,
                                        'name': attr['id']})
 
     def drawLinks(self, links):
