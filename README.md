@@ -28,18 +28,18 @@ v = vissim.Vissim('vissim_v8/example/Busmall.inpx')
 links = v.Links
 ```
 Access VISSIM object data:
-```
+```python
 # Will output data for link 2
 links[2]
 ```
 Create new VISSIM objects:
-```
+```python
 # Create link from coord 0,0 to 10,15
 coords = {'points3D': [(0,0,0), (10,15,0)]}
 links.createLink(**coords)
 ```
 Export VISSIM model to new file:
-```
+```python
 v.export('example_new.inpx')
 ```
 
