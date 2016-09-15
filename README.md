@@ -17,19 +17,20 @@
 
 ###Install:
 ``` python
-python setup.py install
+python setup_v8.py install
 ```
 
 ###Usage:
 ```python
 import vissim_v8 as vissim
 
-links = vissim.Links('example.inpx')
+v = vissim.Vissim('example.inpx')
+links = vissim.Links
 # Create link from coord 0,0 to 10,15
 coords = {'points3D': [(0,0,0), (10,15,0)]}
-links.create(**coords)
+links.createLink(**coords)
 # Export loaded link data and new link
-links.export('example_new.inpx')
+v.export('example_new.inpx')
 ```
 
 ##VISSIM v5.x (/vissim_v5)

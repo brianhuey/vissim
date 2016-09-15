@@ -12,7 +12,7 @@ from os import path
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the README file
-with open(path.join(here, 'README.md'), encoding='utf-8') as f:
+with open(path.join('../README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
@@ -74,7 +74,7 @@ setup(
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
-       py_modules=["vissim_v8"],
+       py_modules=["vissim_objs", "__init__", "osm_to_graph", "osm_to_vissim"],
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's
