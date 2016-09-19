@@ -303,7 +303,7 @@ class Links(Vissim):
             Input: link number
             Output: Removed <point3D> elements from a link.
         """
-        self.removeElements('[@no="' + str(linkNum) +
+        self._removeElements('[@no="' + str(linkNum) +
                             '"]/geometry/points3D/point3D')
 
     def addGeometry(self, linkNum, points):
@@ -339,7 +339,7 @@ class Links(Vissim):
             Input: link number
             Output: Removed <lane> elements from a link.
         """
-        self.removeElements('[@no="' + str(linkNum) + '"]/lanes/lane')
+        self._removeElements('[@no="' + str(linkNum) + '"]/lanes/lane')
 
     def getLanes(self, linkNum):
         """ Get lane widths.

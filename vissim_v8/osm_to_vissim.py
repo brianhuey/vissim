@@ -293,41 +293,120 @@ class OSM(Vissim):
             intersections.update(self.getIntersections(n))
         return intersections
 
-    def getLink(self, nodes, attr, links):
+    def getTurnLanes(self, attr, direction='forward'):
+        """ Parse turn lane info.
+            Input: link attribute
+            Output: turn lane instructions
+        """
+        if self.isOneway(attr):
+            if 'turn:lanes' in attr:
+                turns = attr['turn:lanes'].split('|')
+            elif 'lanes' in attr:
+                lanes = int(attr['lanes'])
+                turns = ['through'] * lanes
+            else:
+                turns = ['through']
+        else:
+            if 'turn:lanes:' + direction in attr:
+                turns = attr['turn:lanes:' + direction].split('|')
+            elif 'lanes:' + direction in attr:
+                lanes = int(attr['lanes:' + direction])
+                turns = ['through'] * lanes
+            elif 'lanes' in attr:
+                lanes = int(attr['lanes']) / 2
+                turns = ['through'] * lanes
+            else:
+                turns = ['through']
+        turns = ['through' if i == '' or i.lower() == 'none' else i for i in
+                 turns]
+        return [i.split(';') for i in turns]
+
+    def calcLaneAlignment(self, fromAttr, toAttr, direction='forward'):
+        """ Calculate the correct lane alignment for pairs of non-intersection
+            links and output an additional parallel offset.
+            Input: from and to attribute dicts
+            Output: Offset value
+        """
+        turnFrom = self.getTurnLanes(fromAttr, direction=direction)
+        laneFrom = len(turnFrom)
+        turnTo = self.getTurnLanes(toAttr, direction=direction)
+        laneTo = len(turnTo)
+        if laneFrom < laneTo:
+            laneDiff = laneTo - laneFrom
+            # Count number of left turns
+            lefts = sum([1 if i == ['left'] else 0 for i in turnTo])
+            return self.v.defaultWidth * min([laneDiff, lefts])
+        else:
+            return 0
+
+    def getLink(self, ways, links):
         """ Get link attributes and points.
             Input: coordinate list and attribute dictionary
             Output: link dictionary
         """
-        nodes = list(OrderedDict.fromkeys([n for n in nodes]))
+        waysAttr = OrderedDict()
+        for way in ways:
+            way = list(OrderedDict.fromkeys([n for n in way]))
+            fromN = way[0]
+            toN = way[1]
+            attr = self.G.edge[fromN][toN]
+            if self.isOneway(attr):
+                wayID = attr['id']
+                waysAttr[wayID] = {'forward': True, 'nodes': way, 'attr': attr}
+            else:
+                wayID = attr['id'] + '-F'
+                waysAttr[wayID] = {'forward': True, 'nodes': way, 'attr': attr}
+                wayID = attr['id'] + '-B'
+                waysAttr[wayID] = {'forward': False, 'nodes':
+                                   list(reversed(way)), 'attr': attr}
         if self.isOneway(attr):
             wayID = attr['id']
-            links[wayID] = {'forward': True, 'nodes': nodes, 'attr': attr}
+            if attrB:
+                offset = self.calcLaneAlignment(attr, attrB)
+            else:
+                offset = 0
+            links[wayID] = {'forward': True, 'nodes': nodes, 'attr': attr,
+                            'offset': offset}
         else:
+            if attrB:
+                offsetFwd = self.calcLaneAlignment(attr, attrB)
+                offsetBkd = self.calcLaneAlignment(attr, attrB,
+                                                   direction='backward')
+            else:
+                offsetFwd, offsetBkd = 0, 0
             wayID = attr['id'] + '-F'
-            links[wayID] = {'forward': True, 'nodes': nodes, 'attr': attr}
+            links[wayID] = {'forward': True, 'nodes': nodes, 'attr': attr,
+                            'offset': offsetFwd}
             wayID = attr['id'] + '-B'
             links[wayID] = {'forward': False, 'nodes': list(reversed(nodes)),
-                            'attr': attr}
+                            'attr': attr, 'offset': offsetBkd}
 
     def getLinks(self, startNode):
-        """ Begin with startNode and end at an intersection
+        """ Begin with startNode and traverse the graph, collecting the nodes
+            of each way. When a new way is encountered, start a new list of
+            nodes. When a new intersection is encountered, pass the list of
+            ways to the getLink function for processing.
             Input: graph, startNode
-            Output: nodes that comprise a single link
+            Output: dictionary used for creating VISSIM links
         """
         links = {}
+        ways = []
         nodes = []
         prevAttr = None
         currAttr = None
         for fromN, toN in nx.dfs_edges(self.G, source=startNode):
             currAttr = self.G.edge[fromN][toN]
-            if (self.isNewWay(fromN, toN, prevAttr) or
-                    self.isIntersection(fromN)):
-                self.getLink(nodes, prevAttr, links)
+            if self.isIntersection(fromN):
+                self.getLink(ways, links)
+                ways = []
+            elif self.isNewWay(fromN, toN, prevAttr):
+                ways.append(nodes)
                 nodes = []
             nodes.append(fromN)
             nodes.append(toN)
             prevAttr = currAttr
-        self.getLink(nodes, currAttr, links)
+        ways.append(nodes)
+        self.getLink(ways, links)
         return links
 
     def offsetParallel(self, points, distance, clockwise=True):
@@ -383,25 +462,6 @@ class OSM(Vissim):
         db = (b-a)/np.linalg.norm(b-a)*distance
         return b-db
 
-    def getTurnLanes(self, attr, direction='forward'):
-        """ Parse turn lane info.
-            Input: link attribute
-            Output: turn lane instructions
-        """
-        if self.isOneway(attr):
-            if 'turn:lanes' in attr:
-                turns = attr['turn:lanes'].split('|')
-            elif 'lanes' in attr:
-                lanes = int(attr['lanes'])
-                turns = ['through'] * lanes
-        else:
-            if 'turn:lanes:' + direction in attr:
-                turns = attr['turn:lanes:' + direction].split('|')
-            elif 'lanes:' + direction in attr:
-                lanes = int(attr['lanes:' + direction])
-                turns = ['through'] * lanes
-        return [i.split(';') for i in turns]
-
     def nodesToXY(self, attr):
         """ Process links dictionary to calculate proper XY coordinates.
             Input: links dictionary
@@ -419,6 +479,7 @@ class OSM(Vissim):
         # Parallel
         if not self.isOneway(attr):
             dist = (sum(self.getLanes(attr)) * self.v.defaultWidth) / 2.0 / 2.0
+            dist += attr['offset']
             point3D = self.offsetParallel(point3D, dist)
         attr['point3D'] = [self.stringify(i) for i in point3D]
         # Lane number
