@@ -298,6 +298,7 @@ class OSM(Vissim):
             Input: link attribute
             Output: turn lane instructions
         """
+        attr = attr['attr']
         if self.isOneway(attr):
             if 'turn:lanes' in attr:
                 turns = attr['turn:lanes'].split('|')
@@ -321,23 +322,56 @@ class OSM(Vissim):
                  turns]
         return [i.split(';') for i in turns]
 
-    def calcLaneAlignment(self, fromAttr, toAttr, direction='forward'):
-        """ Calculate the correct lane alignment for pairs of non-intersection
-            links and output an additional parallel offset.
-            Input: from and to attribute dicts
-            Output: Offset value
+    def calcLaneAlignment(self, waysAttr):
+        """ For a list of ways between two intersections, calculate the
+            correct lane transitions as offsets from the centerline.
+            Input: dict of ways
+            Output: modified dict with offsets
         """
-        turnFrom = self.getTurnLanes(fromAttr, direction=direction)
-        laneFrom = len(turnFrom)
-        turnTo = self.getTurnLanes(toAttr, direction=direction)
-        laneTo = len(turnTo)
-        if laneFrom < laneTo:
-            laneDiff = laneTo - laneFrom
-            # Count number of left turns
-            lefts = sum([1 if i == ['left'] else 0 for i in turnTo])
-            return self.v.defaultWidth * min([laneDiff, lefts])
-        else:
-            return 0
+        links = {}
+        aFwdAttr = waysAttr['forward'].values()[0]
+        aBkdAttr = waysAttr['backward'].values()[0]
+        aFwdLanes, aBkdLanes = self.getLanes(aFwdAttr)
+        bFwdAttr = waysAttr['forward'].values()[-1]
+        bBkdAttr = waysAttr['backward'].values()[-1]
+        bFwdLanes, bBkdLanes = self.getLanes(bFwdAttr)
+        aLanes, bLanes = aFwdLanes + aBkdLanes, bFwdLanes + bBkdLanes
+        aDiff, bDiff = aFwdLanes - aBkdLanes, bFwdLanes - bBkdLanes
+        # Calculate the offsets for the (A/B) ways: those that connect to an
+        # intersection
+        if aLanes == bLanes:
+            aFwdAttr['offset'] = aFwdLanes / 2.0 - (aDiff / 2.0)
+            aBkdAttr['offset'] = aBkdLanes / 2.0 + (aDiff / 2.0)
+            bFwdAttr['offset'] = bFwdLanes / 2.0 - (bDiff / 2.0)
+            bBkdAttr['offset'] = bBkdLanes / 2.0 + (bDiff / 2.0)
+        elif aLanes > bLanes:
+            aFwdAttr['offset'] = aFwdLanes / 2.0 - (aDiff / 2.0)
+            aBkdAttr['offset'] = aBkdLanes / 2.0 + (aDiff / 2.0)
+            bFwdAttr['offset'] = aFwdLanes / 2.0 - (aDiff / 2.0)
+            aBkdTurns = self.getTurnLanes(aBkdAttr, direction='backward')
+            lefts = sum([1 if i == ['left'] else 0 for i in aBkdTurns])
+            bBkdAttr['offset'] = bBkdLanes / 2.0 + (bDiff / 2.0) + lefts / 2.0
+        elif aLanes < bLanes:
+            bFwdAttr['offset'] = bFwdLanes / 2.0 - (bDiff / 2.0)
+            bBkdAttr['offset'] = bBkdLanes / 2.0 + (bDiff / 2.0)
+            aFwdAttr['offset'] = bFwdLanes / 2.0 - (bDiff / 2.0)
+            bFwdTurns = self.getTurnLanes(bFwdAttr)
+            lefts = sum([1 if i == ['left'] else 0 for i in bFwdTurns])
+            aBkdAttr['offset'] = aBkdLanes / 2.0 + (bDiff / 2.0) + lefts / 2.0
+        # Calculate the offsets for the intermediate ways: those that don't
+        # connect to an intersection.
+        if len(waysAttr['forward']) > 2:
+            fwdOffset = bBkdAttr['offset']
+            bkdOffset = aFwdAttr['offset']
+            fwdAttrs = waysAttr['forward'].values()[1:-1]
+            bkdAttrs = waysAttr['backward'].values()[1:-1]
+            for attr in fwdAttrs:
+                attr['offset'] = fwdOffset
+            for attr in bkdAttrs:
+                attr['offset'] = bkdOffset
+        links.update({k + '-F': v for k, v in waysAttr['forward'].items()})
+        links.update({k + '-B': v for k, v in waysAttr['backward'].items()})
+        return links
 
     def getLink(self, ways, links):
         """ Get link attributes and points.
@@ -351,35 +385,26 @@ class OSM(Vissim):
             toN = way[1]
             attr = self.G.edge[fromN][toN]
             if self.isOneway(attr):
+                if not waysAttr.get('oneway'):
+                    waysAttr['oneway'] = OrderedDict()
                 wayID = attr['id']
-                waysAttr[wayID] = {'forward': True, 'nodes': way, 'attr': attr}
+                waysAttr['oneway'][wayID] = {'forward': True, 'nodes': way,
+                                             'attr': attr, 'offset': 0}
             else:
-                wayID = attr['id'] + '-F'
-                waysAttr[wayID] = {'forward': True, 'nodes': way, 'attr': attr}
-                wayID = attr['id'] + '-B'
-                waysAttr[wayID] = {'forward': False, 'nodes':
-                                   list(reversed(way)), 'attr': attr}
-        if self.isOneway(attr):
-            wayID = attr['id']
-            if attrB:
-                offset = self.calcLaneAlignment(attr, attrB)
-            else:
-                offset = 0
-            links[wayID] = {'forward': True, 'nodes': nodes, 'attr': attr,
-                            'offset': offset}
-        else:
-            if attrB:
-                offsetFwd = self.calcLaneAlignment(attr, attrB)
-                offsetBkd = self.calcLaneAlignment(attr, attrB,
-                                                   direction='backward')
-            else:
-                offsetFwd, offsetBkd = 0, 0
-            wayID = attr['id'] + '-F'
-            links[wayID] = {'forward': True, 'nodes': nodes, 'attr': attr,
-                            'offset': offsetFwd}
-            wayID = attr['id'] + '-B'
-            links[wayID] = {'forward': False, 'nodes': list(reversed(nodes)),
-                            'attr': attr, 'offset': offsetBkd}
+                wayID = attr['id']
+                if (not waysAttr.get('forward') and
+                        not waysAttr.get('backward')):
+                    waysAttr['forward'] = OrderedDict()
+                    waysAttr['backward'] = OrderedDict()
+                waysAttr['forward'][wayID] = {'forward': True, 'nodes': way,
+                                              'attr': attr}
+                waysAttr['backward'][wayID] = {'forward': False, 'nodes':
+                                               list(reversed(way)), 'attr':
+                                               attr}
+        if waysAttr.get('forward') and waysAttr.get('backward'):
+            links.update(self.calcLaneAlignment(waysAttr))
+        if waysAttr.get('oneway'):
+            links.update(waysAttr['oneway'])
 
     def getLinks(self, startNode):
         """ Begin with startNode and traverse the graph, collecting the nodes
@@ -397,14 +422,19 @@ class OSM(Vissim):
         for fromN, toN in nx.dfs_edges(self.G, source=startNode):
             currAttr = self.G.edge[fromN][toN]
             if self.isIntersection(fromN):
+                ways.append(nodes)
                 self.getLink(ways, links)
                 ways = []
+                nodes = []
             elif self.isNewWay(fromN, toN, prevAttr):
                 ways.append(nodes)
                 nodes = []
             nodes.append(fromN)
             nodes.append(toN)
             prevAttr = currAttr
+            if self.isExterior(toN):
+                ways.append(nodes)
+                self.getLink(ways, links)
         ways.append(nodes)
         self.getLink(ways, links)
         return links
@@ -457,8 +487,8 @@ class OSM(Vissim):
         if not beginning:
             a = np.array(points[-2], dtype='float')
             b = np.array(points[-1], dtype='float')
-        assert math.sqrt(sum((b-a)**2)) > distance, ('distance exceeds node '
-                                                     'pair length')
+        if math.sqrt(sum((b-a)**2)) < distance:
+            distance = math.sqrt(sum((b-a)**2)) * 0.99
         db = (b-a)/np.linalg.norm(b-a)*distance
         return b-db
 
@@ -478,8 +508,7 @@ class OSM(Vissim):
             point3D[-1] = self.offsetEndpoint(point3D, dist, beginning=False)
         # Parallel
         if not self.isOneway(attr):
-            dist = (sum(self.getLanes(attr)) * self.v.defaultWidth) / 2.0 / 2.0
-            dist += attr['offset']
+            dist = attr['offset'] * self.v.defaultWidth
             point3D = self.offsetParallel(point3D, dist)
         attr['point3D'] = [self.stringify(i) for i in point3D]
         # Lane number
