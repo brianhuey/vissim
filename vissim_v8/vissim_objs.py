@@ -9,12 +9,14 @@
 from lxml import etree
 from copy import deepcopy
 from scipy.spatial.distance import cdist
+from os import path
 
 
 class Vissim(object):
     def __init__(self, filename=None):
         if filename is None:
-            self.filename = 'default/default.inpx'
+            here = path.abspath(path.dirname(__file__))
+            self.filename = here + '/default/default.inpx'
             self.data = self._load(self.filename)
         else:
             self.filename = filename
