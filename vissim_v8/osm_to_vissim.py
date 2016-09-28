@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-""" VISSIM Tools """
+# OSM to VISSIM converter
 from vissim_objs import Vissim
 import networkx as nx
 from osm_to_graph import read_osm
@@ -298,12 +298,14 @@ class OSM(Vissim):
             fromN = way[0]
             toN = way[1]
             attr = self.G.edge[fromN][toN]
+            fwdLanes, bkdLanes = self.getLanes({'attr': attr})
             if self.isOneway(attr):
                 if not waysDict.get('oneway'):
                     waysDict['oneway'] = OrderedDict()
                 wayID = attr['id']
                 waysDict['oneway'][wayID] = {'forward': True, 'nodes': way,
-                                             'attr': attr, 'offset': 0}
+                                             'attr': attr, 'offset': 0,
+                                             'laneNumber': fwdLanes}
             else:
                 wayID = attr['id']
                 if (not waysDict.get('forward') and
@@ -311,10 +313,11 @@ class OSM(Vissim):
                     waysDict['forward'] = OrderedDict()
                     waysDict['backward'] = OrderedDict()
                 waysDict['forward'][wayID] = {'forward': True, 'nodes': way,
-                                              'attr': attr}
+                                              'attr': attr, 'laneNumber':
+                                              fwdLanes}
                 waysDict['backward'][wayID] = {'forward': False, 'nodes':
                                                list(reversed(way)), 'attr':
-                                               attr}
+                                               attr, 'laneNumber': bkdLanes}
         if waysDict.get('forward') and waysDict.get('oneway'):
             fwdBkd = self.calcLaneAlignment(waysDict)
             return dict(fwdBkd, **waysDict['onway'])
@@ -368,6 +371,61 @@ class OSM(Vissim):
 
     # XY dict - translate nodes from ways dict to X,Y points including lane
     # offsets
+
+    def getWayByNode(self, fromN, toN):
+        if (fromN, toN) in self.G.edges():
+            # Forward way
+            wayID = self.G.edge[fromN][toN]['id']
+            if wayID in self.ways.keys():
+                return wayID
+            elif wayID + '-F' in self.ways.keys():
+                return wayID + '-F'
+            else:
+                raise KeyError
+        elif (toN, fromN) in self.G.edges():
+            # Backward way
+            wayID = self.G.edge[toN][fromN]['id'] + '-B'
+            if wayID in self.ways.keys():
+                return wayID
+            else:
+                raise KeyError
+        else:
+            raise KeyError
+
+    def calcTurn(self, startBearing, endBearing):
+        thruMin, thruMax = 135, -135
+        leftMin, leftMax = -135, -45
+        rightMin, rightMax = 45, 135
+        left, right, through = None, None, None
+        diff = ((((startBearing-endBearing) % 360)+540) % 360) - 180
+        if diff >= thruMin or diff <= thruMax:
+            return 'through'
+        elif diff > leftMin and diff < leftMax:
+            return 'left'
+        elif diff > rightMin and diff < rightMax:
+            return 'right'
+        else:
+            return None
+
+    def calcTurns(self, intN, fromN):
+        """ For a given approach to an intersection, find the wayIDs
+            which represent left, through and right turns.
+            Input: intersection node, from node
+            Output: Dict of wayIDs and turn movements
+        """
+        intersection = self.intersections[intN]
+        startBearing = intersection[fromN]['bearing']
+        turns = {'left': [], 'right': [], 'through': []}
+        for n, attr in intersection.items():
+            endBearing = attr['bearing']
+            try:
+                wayID = self.getWayByNode(intN, n)
+                turn = self.calcTurn(startBearing, endBearing)
+                turns[turn].append(wayID)
+            except:
+                continue
+        return turns
+
     def offsetParallel(self, points, distance, clockwise=True):
         """ Create a parallel offset of xy points a certain distance and
             direction from the original.
@@ -421,18 +479,6 @@ class OSM(Vissim):
         db = (b-a) / np.linalg.norm(b-a) * distance
         return b - db
 
-    def getWayByNode(self, fromN, toN):
-        try:
-            fwd = self.G.edge[fromN][toN]
-            wayID = fwd['id']
-            if wayID in self.ways.keys():
-                return wayID
-            else:
-                return wayID + '-F'
-        except:
-            bkd = self.G.edge[toN][fromN]
-            return bkd['id'] + '-B'
-
     def calcCrossSection(self, intN, fromN, bearing, clockwise=True):
         """ Calculate the parallel offsets for two-way and one-way links
             adjacent to the subject approach link in order to offsets to
@@ -472,16 +518,17 @@ class OSM(Vissim):
         """
         intersection = self.intersections[intN]
         startBearing = intersection[fromN]['bearing']
-        minBearing, maxBearing = -180, 180
+        minBearing, maxBearing = None, None
         left, right = None, None
         for n, attr in intersection.items():
-            diff = ((((startBearing-attr['bearing']) % 360)+540) % 360) - 180
-            if (diff > 0 and diff < maxBearing):
-                    left = n
-                    maxBearing = diff
-            elif (diff < 0 and diff > minBearing):
-                    right = n
-                    minBearing = diff
+            endBearing = attr['bearing']
+            diff = ((((startBearing-endBearing) % 360)+540) % 360) - 180
+            if self.calcTurn(startBearing, endBearing) == 'left':
+                left = n
+                maxBearing = diff
+            elif self.calcTurn(startBearing, endBearing) == 'right':
+                right = n
+                minBearing = diff
         if left:
             leftLane = self.calcCrossSection(intN, left, maxBearing,
                                              clockwise=False)
@@ -535,22 +582,16 @@ class OSM(Vissim):
         if not self.isOneway(attr):
             dist = attr['offset'] * width
             point3D = self.offsetParallel(point3D, dist)
-        # Endpoints
+        # Endpoints / Turns
         if nodes[0] in self.intersections:
             dist = self.getCrossStreets(nodes[0], nodes[1]) * width
             point3D[0] = self.offsetEndpoint(point3D, dist)
         if nodes[-1] in self.intersections:
             dist = self.getCrossStreets(nodes[-1], nodes[-2]) * width
             point3D[-1] = self.offsetEndpoint(point3D, dist, beginning=False)
+            # Turn dictionary only for ways pointing toward the intersection
+            attr['turns'] = self.calcTurns(nodes[-1], nodes[-2])
         attr['point3D'] = [stringify(i) for i in point3D]
-        # Lane number
-        fwdLanes, bkdLanes = self.getLanes(attr)
-        if self.isOneway(attr['attr']):
-            attr['laneNumber'] = fwdLanes
-        elif attr['forward']:
-            attr['laneNumber'] = fwdLanes
-        elif not attr['forward']:
-            attr['laneNumber'] = bkdLanes
         return attr
 
     def createXYDict(self):
@@ -564,17 +605,63 @@ class OSM(Vissim):
 
     # Create VISSM objects from OSM
     def importLinks(self):
-        """ Create links based on link dictionary, using attributes and
+        """ Create links based on xy dictionary, using attributes and
             centerlines as a guide.
-            Input: link attributes and centerlines
-            Output: returns vissim object with added links
+            Input: xy dictionary
+            Output: modifies vissim object in place
         """
-        for key, value in self.xy.items():
-            attr = value['attr']
-            point3D = value['point3D']
-            lanes = int(value['laneNumber']) * [self.v.defaultWidth]
+        for wayID, attr in self.xy.items():
+            point3D = attr['point3D']
+            lanes = int(attr['laneNumber']) * [self.v.defaultWidth]
             self.v.Links.createLink(**{'point3D': point3D, 'lane': lanes,
-                                       'name': attr['id']})
+                                       'name': wayID})
+
+    def hasTurn(self, turnLanes, turn):
+        """ Check if a turning movement exists at an approach.
+            Input: turnLanes, turn
+            Output: bool
+        """
+        for lane in turnLanes:
+            if turn in lane:
+                return True
+            else:
+                continue
+        return False
+
+    def processTurns(self, fromLink, turnTo, turnLanes, turn):
+        turns = sum([1 if turn in lane else 0 for lane in turnLanes])
+        fromLane = min([i+1 if turn in v else '' for i, v in
+                        enumerate(reversed(turnLanes))])
+        for wayID in turnTo[turn]:
+            toLink = self.v.Links._getAttributes('name', wayID)['no']
+            lanes = len(self.v.Links.getLanes(toLink))
+            if lanes < turns:
+                turns = lanes
+            self.v.Links.createConnector(fromLink, fromLane, toLink, lanes,
+                                         turns)
+
+    def importConnectors(self):
+        """ Create connectors based on xy dictionary.
+            Input: xy dictionary
+            Output: modifies vissim object in place
+        """
+        for wayID, attr in self.xy.items():
+            if 'turns' in attr:
+                if wayID[-1] == 'B':
+                    direction = 'backward'
+                else:
+                    direction = 'forward'
+                fromLink = self.v.Links._getAttributes('name', wayID)['no']
+                turnTo = attr['turns']
+                turnLanes = self.getTurnLanes(attr, direction=direction)
+                if len(turnTo['left']) > 0 and self.hasTurn(turnLanes, 'left'):
+                    self.processTurns(fromLink, turnTo, turnLanes, 'left')
+                if (len(turnTo['through']) > 0 and
+                        self.hasTurn(turnLanes, 'through')):
+                    self.processTurns(fromLink, turnTo, turnLanes, 'through')
+                if (len(turnTo['right']) > 0 and
+                        self.hasTurn(turnLanes, 'right')):
+                    self.processTurns(fromLink, turnTo, turnLanes, 'right')
 
     # Leftovers
     def drawLinks(self, links):
