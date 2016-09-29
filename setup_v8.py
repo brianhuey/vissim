@@ -12,7 +12,7 @@ from os import path
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the README file
-with open(path.join('../README.md'), encoding='utf-8') as f:
+with open(path.join('README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
@@ -64,23 +64,23 @@ setup(
 
     # What does your project relate to?
     keywords='vissim traffic transportation modeling',
-    
+
     # Is your project is safe to be zipped?
     zip_safe=True,
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    # packages=find_packages(exclude=[]),
-
+    packages=['vissim_v8'],
+    include_package_data=True,
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
-       py_modules=["vissim_objs", "__init__", "osm_to_graph", "osm_to_vissim"],
+    #   py_modules=[],
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=[],
+    install_requires=['networkx', 'numpy', 'scipy', 'lxml'],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
