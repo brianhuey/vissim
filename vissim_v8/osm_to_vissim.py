@@ -4,7 +4,7 @@ from vissim_objs import Vissim
 import networkx as nx
 from osm_to_graph import read_osm
 from collections import OrderedDict
-import numpy as np
+import geo_math as geo
 import math
 
 
@@ -108,33 +108,6 @@ class OSM(Vissim):
                     edgeNodes.remove(n)
         return edgeNodes
 
-    def getLanes(self, attr):
-        """ Determine number of lanes based on OSM attributes.
-            Input: OSM attribute
-            Output: tuple with number of lanes (forward, backward),
-                    False if no lane numbers specified
-        """
-        lanes = attr['attr'].get('lanes')
-        if self.isOneway(attr['attr']):
-            if lanes:
-                return int(lanes), 0
-            else:
-                # If no lane spec, return default.
-                return 1, 0
-        else:
-            forward = attr['attr'].get('lanes:forward')
-            backward = attr['attr'].get('lanes:backward')
-            if forward and backward:
-                return int(forward), int(backward)
-            elif lanes:
-                if int(lanes) % 2 > 0:
-                    raise ValueError('Number of lanes is not evenly divisible')
-                else:
-                    return int(lanes)/2, int(lanes)/2
-            else:
-                # If no lane spec, return default.
-                return 1, 1
-
     # Intersection dict
     def compassBearing(self, pointA, pointB):
         """ Calculates the bearing between two points. Source:
@@ -237,6 +210,19 @@ class OSM(Vissim):
                  turns]
         return [i.split(';') for i in turns]
 
+    def getLanes(self, attr):
+        """ Determine number of lanes based on OSM attributes.
+            Input: OSM attribute
+            Output: tuple with number of lanes (forward, backward),
+                    False if no lane numbers specified
+        """
+        if self.isOneway(attr['attr']):
+            return len(self.getTurnLanes(attr)), 0
+        else:
+            forward = len(self.getTurnLanes(attr))
+            backward = len(self.getTurnLanes(attr, direction='backward'))
+            return forward, backward
+
     def calcLaneAlignment(self, waysDict):
         """ For a list of ways between two intersections, calculate the
             correct lane transitions as offsets from the centerline.
@@ -320,7 +306,7 @@ class OSM(Vissim):
                                                attr, 'laneNumber': bkdLanes}
         if waysDict.get('forward') and waysDict.get('oneway'):
             fwdBkd = self.calcLaneAlignment(waysDict)
-            return dict(fwdBkd, **waysDict['onway'])
+            return dict(fwdBkd, **waysDict['oneway'])
         elif waysDict.get('forward'):
             return self.calcLaneAlignment(waysDict)
         elif waysDict.get('oneway'):
@@ -409,75 +395,35 @@ class OSM(Vissim):
 
     def calcTurns(self, intN, fromN):
         """ For a given approach to an intersection, find the wayIDs
-            which represent left, through and right turns.
+            which represent left, through and right turns. In the case where
+            a way ends mid-block, then specify the next way to connect to.
             Input: intersection node, from node
             Output: Dict of wayIDs and turn movements
         """
-        intersection = self.intersections[intN]
-        startBearing = intersection[fromN]['bearing']
         turns = {'left': [], 'right': [], 'through': []}
-        for n, attr in intersection.items():
-            endBearing = attr['bearing']
-            try:
+        if intN in self.intersections:
+            intersection = self.intersections[intN]
+            startBearing = intersection[fromN]['bearing']
+            for n, attr in intersection.items():
+                endBearing = attr['bearing']
+                try:
+                    wayID = self.getWayByNode(intN, n)
+                    turn = self.calcTurn(startBearing, endBearing)
+                    turns[turn].append(wayID)
+                except:
+                    continue
+        else:
+            if (fromN in self.G.successors(intN) and
+                    len(self.G.predecessors(intN)) == 1):
+                n = self.G.predecessors(intN)[0]
                 wayID = self.getWayByNode(intN, n)
-                turn = self.calcTurn(startBearing, endBearing)
-                turns[turn].append(wayID)
-            except:
-                continue
+                turns['through'].append(wayID)
+            elif (fromN in self.G.predecessors(intN) and
+                    len(self.G.successors(intN)) == 1):
+                n = self.G.successors(intN)[0]
+                wayID = self.getWayByNode(intN, n)
+                turns['through'].append(wayID)
         return turns
-
-    def offsetParallel(self, points, distance, clockwise=True):
-        """ Create a parallel offset of xy points a certain distance and
-            direction from the original.
-            Input: list of xy points, distance in meters, direction
-            Output: transformed list of xy points
-        """
-        def perp(a, dist, clockwise=True):
-            norm = a/np.linalg.norm(a)*dist
-            b = np.empty_like(norm)
-            if clockwise:
-                b[0] = norm[1]
-                b[1] = -norm[0]
-            elif not clockwise:
-                b[0] = -norm[1]
-                b[1] = norm[0]
-            return b
-        start = None
-        offsetPoints = []
-        for i, point in enumerate(points):
-            point = np.array(point, dtype='float')
-            if i == 0:
-                start = point
-            elif i == 1:
-                prev = (perp(start - point, distance,
-                        clockwise=(not clockwise)) + start)
-                offsetPoints.append(list(np.array(prev, dtype='str')))
-                ppoint = (perp(point - start, distance, clockwise=clockwise) +
-                          point)
-                offsetPoints.append(list(np.array(ppoint, dtype='str')))
-                start = point
-            else:
-                ppoint = (perp(point - start, distance, clockwise=clockwise) +
-                          point)
-                offsetPoints.append(list(np.array(ppoint, dtype='str')))
-                start = point
-        return offsetPoints
-
-    def offsetEndpoint(self, points, distance, beginning=True):
-        """ Pull back end point of way in order to create VISSIM intersection.
-            Input: list of nodes, distance, beginning or end of link
-            Output: transformed list of nodes
-        """
-        if beginning:
-            a = np.array(points[1], dtype='float')
-            b = np.array(points[0], dtype='float')
-        if not beginning:
-            a = np.array(points[-2], dtype='float')
-            b = np.array(points[-1], dtype='float')
-        if math.sqrt(sum((b-a)**2)) < distance:
-            distance = math.sqrt(sum((b-a)**2)) * 0.99
-        db = (b-a) / np.linalg.norm(b-a) * distance
-        return b - db
 
     def calcCrossSection(self, intN, fromN, bearing, clockwise=True):
         """ Calculate the parallel offsets for two-way and one-way links
@@ -581,16 +527,16 @@ class OSM(Vissim):
         # Parallel
         if not self.isOneway(attr):
             dist = attr['offset'] * width
-            point3D = self.offsetParallel(point3D, dist)
+            point3D = geo.offsetParallel(point3D, dist)
         # Endpoints / Turns
         if nodes[0] in self.intersections:
             dist = self.getCrossStreets(nodes[0], nodes[1]) * width
-            point3D[0] = self.offsetEndpoint(point3D, dist)
+            point3D[0] = geo.offsetEndpoint(point3D, dist)
         if nodes[-1] in self.intersections:
             dist = self.getCrossStreets(nodes[-1], nodes[-2]) * width
-            point3D[-1] = self.offsetEndpoint(point3D, dist, beginning=False)
-            # Turn dictionary only for ways pointing toward the intersection
-            attr['turns'] = self.calcTurns(nodes[-1], nodes[-2])
+            point3D[-1] = geo.offsetEndpoint(point3D, dist, beginning=False)
+        # Turn dictionary only for ways pointing toward the intersection
+        attr['turns'] = self.calcTurns(nodes[-1], nodes[-2])
         attr['point3D'] = [stringify(i) for i in point3D]
         return attr
 
@@ -637,7 +583,8 @@ class OSM(Vissim):
             lanes = len(self.v.Links.getLanes(toLink))
             if lanes < turns:
                 turns = lanes
-            self.v.Links.createConnector(fromLink, fromLane, toLink, lanes,
+            toLane = lanes - turns + 1
+            self.v.Links.createConnector(fromLink, fromLane, toLink, toLane,
                                          turns)
 
     def importConnectors(self):

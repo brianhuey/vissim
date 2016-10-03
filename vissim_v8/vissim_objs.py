@@ -10,6 +10,7 @@ from lxml import etree
 from copy import deepcopy
 from scipy.spatial.distance import cdist
 from os import path
+import geo_math as geo
 
 
 class Vissim(object):
@@ -420,7 +421,25 @@ class Links(Vissim):
         self._getParams()
         return self.getLink(a['no'])
 
-    def createConnector(self, fromLink, fromLane, toLink, toLane, lanes, **kwargs):
+    def connectorLocation(self, linkNum, lane, lanes):
+        """ Calculate the start and end points of a connector
+        """
+        width = [float(v['width']) for v in self.getLanes(linkNum)]
+        centerline = sum(width) / 2.0
+        laneIdx = lane - len(self.getLanes(linkNum))
+        # beginning from the left, sum all lanes not being connected
+        left = sum(width[:laneIdx+1-lane])
+        # median width of the lanes being connected
+        midpoint = sum(width[laneIdx+1-lane:laneIdx+1]) / 2.0
+        if left + midpoint < centerline:
+            return False, centerline - left + midpoint
+        elif left + midpoint > centerline:
+            return True, left + midpoint - centerline
+        else:
+            return True, 0
+
+    def createConnector(self, fromLink, fromLane, toLink, toLane, lanes,
+                        **kwargs):
         """ Create a new connector in the model.
             Input: from link, from lane, to link, to lane, attributes
             Output: Added <link> element to <links> element.
@@ -447,12 +466,21 @@ class Links(Vissim):
         a = {k: str(kwargs.get(k, v)) for k, v in defaults.items()}
         etree.SubElement(data.xpath('./links')[0], 'link', attrib=a)
         fromAttr = {'lane': str(fromLink) + ' ' + str(fromLane),
-                    'pos': kwargs.get('fromPos', '0.0000')}
+                    'pos': kwargs.get('fromPos', self.getLinkLength(fromLink))}
         self._setChild('no', a['no'], 'fromLinkEndPt', fromAttr)
         self._setChild('no', a['no'], 'geometry', None)
         self._setChild('no', a['no'], 'points3D', None, '/geometry')
-        self.addGeometry(a['no'], kwargs.get('point3D',
-                         [('0', '0', '0'), ('1', '1', '0')]))
+        fromGeo = self.getGeometries(fromLink)[-2:]
+        fromPoint = [(v['x'], v['y'], v['zOffset']) for v in fromGeo]
+        clockwise, fromDist = self.connectorLocation(fromLink, fromLane, lanes)
+        fromPoint = geo.offsetParallel(fromPoint, fromDist,
+                                       clockwise=clockwise)[-1]
+        toGeo = self.getGeometries(toLink)[:2]
+        toPoint = [(v['x'], v['y'], v['zOffset']) for v in toGeo]
+        clockwise, toDist = self.connectorLocation(toLink, toLane, lanes)
+        toPoint = geo.offsetParallel(toPoint, toDist, clockwise=clockwise)[0]
+        point3D = kwargs.get('point3D', [fromPoint, toPoint])
+        self.addGeometry(a['no'], point3D)
         self._setChild('no', a['no'], 'lanes', None)
         # Check number of lanes doesn't exceed the number of from/to lanes
         if (len(self.getLanes(fromLink)) >= lanes and
@@ -462,7 +490,7 @@ class Links(Vissim):
         else:
             raise ValueError('Number of lanes exceeds number of from/to lanes')
         toAttr = {'lane': str(toLink) + ' ' + str(toLane),
-                  'pos': kwargs.get('toPos', self.getLinkLength(toLink))}
+                  'pos': kwargs.get('toPos', '0.0000')}
         self._setChild('no', a['no'], 'toLinkEndPt', toAttr)
         self._getParams()
         return self.getConnector(a['no'])
