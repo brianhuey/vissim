@@ -57,44 +57,32 @@ def offsetEndpoint(points, distance, beginning=True):
     return b - db
 
 
-def solveK(points11, points12, points21, points22):
-    x1, y1, z1 = points12
-    dy1 = (y1-points11[1]) / (x1-points11[0])
-    x2, y2, z2 = points12
-    dy2 = (y2-points22[1]) / (x2-points22[0])
-
-    def k1(r, h):
-        return -np.sqrt(r**2 - (x1-h)**2) + y1
-
-    def k2(r, h):
-        return -np.sqrt(r**2 - (x2-h)**2) + y2
-
-    def r1(h):
-        return np.sqrt(((-2*x1+h)/(2*dy1))**2 + (x1-h)**2)
-
-    def r2(h):
-        return np.sqrt(((-2*x2+h)/(2*dy2))**2 + (x2-h)**2)
-
-    def k1k2r1r2(h):
-        k = [k1(h[2], h[0]) - h[1], k2(h[2], h[0]) - h[1], r1(h[0]) - h[2]]
-        return k
-
-    return fsolve(k1k2r1r2, [0, 0, 1])
-
-
-def spline(points11, points12, points21, points22, n):
-    points11 = np.array(points11, dtype=float)
-    points12 = np.array(points12, dtype=float)
-    points21 = np.array(points21, dtype=float)
-    points22 = np.array(points22, dtype=float)
-    x1, y1, z1 = points11
-    x2, y2, z2 = points22
-    h, k, r = solveK(points11, points12, points21, points22)
-    delta = abs(x2 - x1) / float(n-1)
-    xi = np.arange(x1, x2+delta, delta)
-
-    def circle(x):
-        yStr = [str(round(y, 4)) for y in np.sqrt(r**2 - (x-h)**2) + k]
-        xStr = [str(xs) for xs in x]
-        return zip(xStr, yStr, '0' * len(x))
-    return circle(xi)
+def bezier(origin, destination, n):
+    """ Bezier spline interpolation """
+    if origin == destination:
+        return [origin[1], destination[0]]
+    origin = np.array(origin, dtype=float)
+    destination = np.array(destination, dtype=float)
+    o1x, o1y, o1z = origin[0]  # origin from point
+    o2x, o2y, o2z = origin[1]  # origin end point
+    d1x, d1y, d1z = destination[1]  # destination from point
+    d2x, d2y, d2z = destination[0]  # destination end point
+    # origin slope and intercept
+    om = (o2y-o1y) / float(o2x-o1x)
+    ob = o1y - (om * o1x)
+    # destination slope and intercept
+    dm = (d2y-d1y) / float(d2x-d1x)
+    db = d1y - (dm * d1x)
+    # control points
+    cx = (db - ob) / float(om-dm)
+    cy = (om * cx) + ob
+    t = np.linspace(0, 1, num=n)
+    # Quadratic Bezier equations
+    Bx = (1-t)**2*o2x + 2*(1-t)*t*cx + t**2*d2x
+    By = (1-t)**2*o2y + 2*(1-t)*t*cy + t**2*d2y
+    Bz = [0] * n
+    # Bounding box
+    if om * dm > 0:
+        return [origin[1], destination[0]]
+    else:
+        return zip(Bx, By, Bz)

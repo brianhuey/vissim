@@ -423,16 +423,19 @@ class Links(Vissim):
 
     def connectorLocation(self, linkNum, lane, lanes):
         """ Calculate the start and end points of a connector
+            Input: link number, lane number, total number of lanes
+                   being connected
+            Output: clockwise direction and offset
         """
         width = [float(v['width']) for v in self.getLanes(linkNum)]
         centerline = sum(width) / 2.0
-        laneIdx = lane - len(self.getLanes(linkNum))
+        laneIdx = len(self.getLanes(linkNum)) - lane
         # beginning from the left, sum all lanes not being connected
-        left = sum(width[:laneIdx+1-lane])
+        left = sum(width[:laneIdx+1-lanes])
         # median width of the lanes being connected
-        midpoint = sum(width[laneIdx+1-lane:laneIdx+1]) / 2.0
+        midpoint = sum(width[laneIdx+1-lanes:laneIdx+1]) / 2.0
         if left + midpoint < centerline:
-            return False, centerline - left + midpoint
+            return False, centerline - left - midpoint
         elif left + midpoint > centerline:
             return True, left + midpoint - centerline
         else:
@@ -474,12 +477,12 @@ class Links(Vissim):
         fromPoint = [(v['x'], v['y'], v['zOffset']) for v in fromGeo]
         clockwise, fromDist = self.connectorLocation(fromLink, fromLane, lanes)
         fromPoint = geo.offsetParallel(fromPoint, fromDist,
-                                       clockwise=clockwise)[-1]
+                                       clockwise=clockwise)
         toGeo = self.getGeometries(toLink)[:2]
         toPoint = [(v['x'], v['y'], v['zOffset']) for v in toGeo]
         clockwise, toDist = self.connectorLocation(toLink, toLane, lanes)
-        toPoint = geo.offsetParallel(toPoint, toDist, clockwise=clockwise)[0]
-        point3D = kwargs.get('point3D', [fromPoint, toPoint])
+        toPoint = geo.offsetParallel(toPoint, toDist, clockwise=clockwise)
+        point3D = kwargs.get('point3D', geo.bezier(fromPoint, toPoint, 5))
         self.addGeometry(a['no'], point3D)
         self._setChild('no', a['no'], 'lanes', None)
         # Check number of lanes doesn't exceed the number of from/to lanes
