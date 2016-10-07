@@ -6,7 +6,7 @@ from osm_to_graph import read_osm
 from collections import OrderedDict
 import geo_math as geo
 import math
-
+import debug
 
 def stringify(iterable):
     """ Convert tuple containing numbers to string
@@ -165,7 +165,7 @@ class OSM(Vissim):
                                attr.get('lanes:backward', 1)}
         return intersection
 
-    def getIntersections(self):
+    def createIntersectionDict(self):
         """ Use depth-first search to map intersection nodes and lane widths.
             Input: graph, startNode
             Output: dictionary mapping of intersection nodes
@@ -174,17 +174,6 @@ class OSM(Vissim):
         for fromN, toN in nx.edge_dfs(self.G):
             if self.isIntersection(toN):
                 intersections[toN] = self.getIntersection(toN)
-        return intersections
-
-    def createIntersectionDict(self):
-        """ Create a dictionary for each link with centerline values and link
-            attributes.
-        """
-        intersections = {}
-        startNodes = self.getStartNodes()
-        #for n in startNodes:
-        #intersections.update(self.getIntersections(n))
-        self.getIntersections()
         return intersections
 
     # Ways dict
@@ -321,7 +310,7 @@ class OSM(Vissim):
         elif waysDict.get('oneway'):
             return waysDict['oneway']
 
-    def getWays(self):
+    def createWaysDict(self):
         """ Begin with startNode and traverse the graph, collecting the nodes
             of each way. When a new way is encountered, start a new list of
             nodes. When a new intersection is encountered, pass the list of
@@ -355,17 +344,6 @@ class OSM(Vissim):
         ways.append(nodes)
         waysDict.update(self.getWay(ways))
         return waysDict
-
-    def createWaysDict(self):
-        """ Create a dictionary for each way calculating lane alignment
-            parameters and directionality.
-        """
-        ways = {}
-        startNodes = self.getStartNodes()
-        #for n in startNodes:
-        #ways.update(self.getWays(n))
-        self.getWays()
-        return ways
 
     # XY dict - translate nodes from ways dict to X,Y points including lane
     # offsets
@@ -428,13 +406,19 @@ class OSM(Vissim):
             if (fromN in self.G.successors(intN) and
                     len(self.G.predecessors(intN)) == 1):
                 n = self.G.predecessors(intN)[0]
-                wayID = self.getWayByNode(intN, n)
-                turns['through'].append(wayID)
+                try:
+                    wayID = self.getWayByNode(intN, n)
+                    turns['through'].append(wayID)
+                except:
+                    pass
             elif (fromN in self.G.predecessors(intN) and
                     len(self.G.successors(intN)) == 1):
                 n = self.G.successors(intN)[0]
-                wayID = self.getWayByNode(intN, n)
-                turns['through'].append(wayID)
+                try:
+                    wayID = self.getWayByNode(intN, n)
+                    turns['through'].append(wayID)
+                except:
+                    pass
         return turns
 
     def calcCrossSection(self, intN, fromN, bearing, clockwise=True):
@@ -621,11 +605,3 @@ class OSM(Vissim):
                 if (len(turnTo['right']) > 0 and
                         self.hasTurn(turnLanes, 'right')):
                     self.processTurns(fromLink, turnTo, turnLanes, 'right')
-
-    # Leftovers
-    def drawLinks(self, links):
-        """ Plot links for viewing
-        """
-        from matplotlib.pyplot import plot
-        for i in links.keys():
-            plot([j[0] for j in links[i]], [j[1] for j in links[i]])
