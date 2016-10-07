@@ -66,7 +66,7 @@ setup(
     keywords='vissim traffic transportation modeling',
 
     # Is your project is safe to be zipped?
-    zip_safe=True,
+    zip_safe=False,
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -80,7 +80,7 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['networkx', 'numpy', 'scipy', 'lxml'],
+    install_requires=['networkx>=1.11', 'numpy', 'scipy', 'lxml'],
 
     # List additional groups of dependencies here (e.g. development
     # dependencies). You can install these using the following syntax,
@@ -102,7 +102,7 @@ setup(
     # need to place data files outside of your packages. See:
     # http://docs.python.org/3.4/distutils/setupscript.html#installing-additional-files # noqa
     # In this case, 'data_file' will be installed into '<sys.prefix>/my_data'
-#    data_files=[('my_data', ['data/data_file'])],
+    data_files=[('default', ['vissim_v8\default\default.inpx', 'vissim_v8\default\default.layx'])],
 
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow
