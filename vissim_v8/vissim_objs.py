@@ -482,7 +482,7 @@ class Links(Vissim):
         toPoint = [(v['x'], v['y'], v['zOffset']) for v in toGeo]
         clockwise, toDist = self.connectorLocation(toLink, toLane, lanes)
         toPoint = geo.offsetParallel(toPoint, toDist, clockwise=clockwise)
-        point3D = kwargs.get('point3D', geo.bezier(fromPoint, toPoint, 5))
+        point3D = kwargs.get('point3D', [fromPoint[-1], toPoint[0]])
         self.addGeometry(a['no'], point3D)
         self._setChild('no', a['no'], 'lanes', None)
         # Check number of lanes doesn't exceed the number of from/to lanes

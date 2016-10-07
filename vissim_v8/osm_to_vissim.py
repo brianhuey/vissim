@@ -20,6 +20,8 @@ class OSM(Vissim):
     def __init__(self, osmFile):
         self.G = read_osm(osmFile)
         self.v = Vissim()
+        self.roadTypes = ['motorway', 'motorway_link', 'primary', 'secondary',
+                          'tertiary', 'traffic_signals', 'bus_stop']
         self.refLat, self.refLng = self.getRefLatLng()
         self.refX, self.refY = self.latLngToMeters(self.refLat, self.refLng)
         self.intersections = self.createIntersectionDict()
@@ -103,7 +105,7 @@ class OSM(Vissim):
         """
         edgeNodes = self.getExteriorNodes()
         for node in edgeNodes:
-            for prev, n in nx.dfs_edges(self.G, source=node):
+            for prev, n in nx.edge_dfs(self.G, source=node):
                 if n in edgeNodes:
                     edgeNodes.remove(n)
         return edgeNodes
@@ -141,6 +143,8 @@ class OSM(Vissim):
         nodePoint = (self.G.node[node]['lat'], self.G.node[node]['lon'])
         for n in self.G.successors(node):
             attr = self.G.edge[node][n]
+            if attr['highway'] not in self.roadTypes:
+                continue
             nPoint = (self.G.node[n]['lat'], self.G.node[n]['lon'])
             intersection[n] = {'beginning': True, 'lanes':
                                attr.get('lanes', 1), 'bearing':
@@ -150,6 +154,8 @@ class OSM(Vissim):
                                attr.get('lanes:backward', 1)}
         for n in self.G.predecessors(node):
             attr = self.G.edge[n][node]
+            if attr['highway'] not in self.roadTypes:
+                continue
             nPoint = (self.G.node[n]['lat'], self.G.node[n]['lon'])
             intersection[n] = {'beginning': False, 'lanes':
                                attr.get('lanes', 1), 'bearing':
@@ -159,13 +165,13 @@ class OSM(Vissim):
                                attr.get('lanes:backward', 1)}
         return intersection
 
-    def getIntersections(self, startNode):
+    def getIntersections(self):
         """ Use depth-first search to map intersection nodes and lane widths.
             Input: graph, startNode
             Output: dictionary mapping of intersection nodes
         """
         intersections = {}
-        for fromN, toN in nx.dfs_edges(self.G, source=startNode):
+        for fromN, toN in nx.edge_dfs(self.G):
             if self.isIntersection(toN):
                 intersections[toN] = self.getIntersection(toN)
         return intersections
@@ -176,8 +182,9 @@ class OSM(Vissim):
         """
         intersections = {}
         startNodes = self.getStartNodes()
-        for n in startNodes:
-            intersections.update(self.getIntersections(n))
+        #for n in startNodes:
+        #intersections.update(self.getIntersections(n))
+        self.getIntersections()
         return intersections
 
     # Ways dict
@@ -279,6 +286,8 @@ class OSM(Vissim):
             Output: way dictionary
         """
         waysDict = OrderedDict()
+        if ways == [[]]:
+            return waysDict
         for way in ways:
             way = list(OrderedDict.fromkeys([n for n in way]))
             fromN = way[0]
@@ -312,7 +321,7 @@ class OSM(Vissim):
         elif waysDict.get('oneway'):
             return waysDict['oneway']
 
-    def getWays(self, startNode):
+    def getWays(self):
         """ Begin with startNode and traverse the graph, collecting the nodes
             of each way. When a new way is encountered, start a new list of
             nodes. When a new intersection is encountered, pass the list of
@@ -325,8 +334,10 @@ class OSM(Vissim):
         nodes = []
         prevAttr = None
         currAttr = None
-        for fromN, toN in nx.dfs_edges(self.G, source=startNode):
+        for fromN, toN in nx.edge_dfs(self.G):
             currAttr = self.G.edge[fromN][toN]
+            if currAttr['highway'] not in self.roadTypes:
+                continue
             if self.isIntersection(fromN):
                 ways.append(nodes)
                 waysDict.update(self.getWay(ways))
@@ -351,8 +362,9 @@ class OSM(Vissim):
         """
         ways = {}
         startNodes = self.getStartNodes()
-        for n in startNodes:
-            ways.update(self.getWays(n))
+        #for n in startNodes:
+        #ways.update(self.getWays(n))
+        self.getWays()
         return ways
 
     # XY dict - translate nodes from ways dict to X,Y points including lane

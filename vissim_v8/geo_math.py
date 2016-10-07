@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.optimize import fsolve
 
 
 def offsetParallel(points, distance, clockwise=True):
@@ -52,7 +51,7 @@ def offsetEndpoint(points, distance, beginning=True):
         a = np.array(points[-2], dtype='float')
         b = np.array(points[-1], dtype='float')
     if np.sqrt(sum((b-a)**2)) < distance:
-        distance = math.sqrt(sum((b-a)**2)) * 0.99
+        distance = np.sqrt(sum((b-a)**2)) * 0.99
     db = (b-a) / np.linalg.norm(b-a) * distance
     return b - db
 
@@ -67,6 +66,8 @@ def bezier(origin, destination, n):
     o2x, o2y, o2z = origin[1]  # origin end point
     d1x, d1y, d1z = destination[1]  # destination from point
     d2x, d2y, d2z = destination[0]  # destination end point
+    if o2x == o1x or d2x == d1x:
+        return [origin[1], destination[0]]
     # origin slope and intercept
     om = (o2y-o1y) / float(o2x-o1x)
     ob = o1y - (om * o1x)
@@ -81,7 +82,7 @@ def bezier(origin, destination, n):
     Bx = (1-t)**2*o2x + 2*(1-t)*t*cx + t**2*d2x
     By = (1-t)**2*o2y + 2*(1-t)*t*cy + t**2*d2y
     Bz = [0] * n
-    # Bounding box
+    # Looking for opposite slope values, otherwise don't create a curve
     if om * dm > 0:
         return [origin[1], destination[0]]
     else:
