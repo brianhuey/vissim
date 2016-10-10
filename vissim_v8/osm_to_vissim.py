@@ -6,7 +6,7 @@ from osm_to_graph import read_osm
 from collections import OrderedDict
 import geo_math as geo
 import math
-import debug
+
 
 def stringify(iterable):
     """ Convert tuple containing numbers to string
