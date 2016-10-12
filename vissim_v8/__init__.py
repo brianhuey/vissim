@@ -20,3 +20,4 @@ del sys
 
 from vissim_objs import *
 from osm_to_vissim import *
+from vissim_to_geojson import *

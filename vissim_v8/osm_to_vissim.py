@@ -605,3 +605,4 @@ class OSM(Vissim):
                 if (len(turnTo['right']) > 0 and
                         self.hasTurn(turnLanes, 'right')):
                     self.processTurns(fromLink, turnTo, turnLanes, 'right')
+
