@@ -508,8 +508,8 @@ class OSM(Vissim):
         lat, lng = self.getLatLng(n)
         x, y = self.latLngToMeters(lat, lng)
         scale = 1 / math.cos(math.radians(self.refLat))
-        scaleX = ((x - self.refX) / scale)
-        scaleY = ((y - self.refY) / scale)
+        scaleX = (x - self.refX) / scale
+        scaleY = (y - self.refY) / scale
         return (scaleX, scaleY, '0')
 
     def nodesToXY(self, attr):

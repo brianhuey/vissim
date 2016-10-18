@@ -40,7 +40,7 @@ class GeoJSON():
         return lat, lng
 
     def getRefLat(self):
-        refLng, refLat = self.metersToLatLng(self.refX, self.refY)
+        refLat, refLng = self.metersToLatLng(self.refX, self.refY)
         return refLat, refLng
 
     def scaledMetersToNode(self, xy):
@@ -69,8 +69,10 @@ class GeoJSON():
                 x, y = geo.attrib['x'], geo.attrib['y']
                 latLng = self.scaledMetersToNode((x, y))
                 geos.append(latLng)
+            laneNum = str(len(link.xpath('./lanes/lane')))
             multiLine = geojson.MultiLineString(coordinates=geos)
-            features.append(geojson.Feature(id=linkNum, geometry=multiLine))
+            features.append(geojson.Feature(id=linkNum, geometry=multiLine,
+                                            properties={'lane': laneNum}))
         return geojson.FeatureCollection(features)
 
     def export(self, filename):
