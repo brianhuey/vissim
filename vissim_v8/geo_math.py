@@ -8,35 +8,18 @@ def offsetParallel(points, distance, clockwise=True):
         Output: transformed list of xy points
     """
     def perp(a, dist, clockwise=True):
-        norm = a/np.linalg.norm(a)*dist
-        b = np.empty_like(norm)
+        norm = a/np.linalg.norm(a, axis=1, keepdims=True)*dist
+        b = np.zeros_like(norm)
         if clockwise:
-            b[0] = norm[1]
-            b[1] = -norm[0]
+            b[:, 0] = norm[:, 1]
+            b[:, 1] = -norm[:, 0]
         elif not clockwise:
-            b[0] = -norm[1]
-            b[1] = norm[0]
+            b[:, 0] = -norm[:, 1]
+            b[:, 1] = norm[:, 0]
         return b
-    start = None
-    offsetPoints = []
-    for i, point in enumerate(points):
-        point = np.array(point, dtype='float')
-        if i == 0:
-            start = point
-        elif i == 1:
-            prev = (perp(start - point, distance,
-                    clockwise=(not clockwise)) + start)
-            offsetPoints.append(list(np.array(prev, dtype='str')))
-            ppoint = (perp(point - start, distance, clockwise=clockwise) +
-                      point)
-            offsetPoints.append(list(np.array(ppoint, dtype='str')))
-            start = point
-        else:
-            ppoint = (perp(point - start, distance, clockwise=clockwise) +
-                      point)
-            offsetPoints.append(list(np.array(ppoint, dtype='str')))
-            start = point
-    return offsetPoints
+    A = np.array(points)
+    B = np.vstack([-A[1], A[0], A[1:-1]])
+    return np.array(perp(A-B, distance) + A, dtype='str')
 
 
 def offsetEndpoint(points, distance, beginning=True):
