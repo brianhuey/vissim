@@ -7,7 +7,7 @@ http://github.com/bmander/graphserver/tree/master and is copyright (c)
 2007, Brandon Martin-Anderson under the BSD License
 """
 
-import xml.sax
+from lxml import etree
 import copy
 import networkx
 
@@ -141,21 +141,9 @@ class OSM:
         ways = {}
         superself = self
 
-        class OSMHandler(xml.sax.ContentHandler):
+        class OSMHandler(object):
             @classmethod
-            def setDocumentLocator(self, loc):
-                pass
-
-            @classmethod
-            def startDocument(self):
-                pass
-
-            @classmethod
-            def endDocument(self):
-                pass
-
-            @classmethod
-            def startElement(self, name, attrs):
+            def start(self, name, attrs):
                 if name == 'node':
                     self.currElem = Node(attrs['id'], float(attrs['lon']),
                                          float(attrs['lat']))
@@ -167,16 +155,18 @@ class OSM:
                     self.currElem.nds.append(attrs['ref'])
 
             @classmethod
-            def endElement(self, name):
+            def end(self, name):
                 if name == 'node':
                     nodes[self.currElem.id] = self.currElem
                 elif name == 'way':
                     ways[self.currElem.id] = self.currElem
 
             @classmethod
-            def characters(self, chars):
+            def close(self):
                 pass
-        xml.sax.parse(filename_or_stream, OSMHandler)
+
+        parser = etree.XMLParser(remove_blank_text=True, target=OSMHandler())
+        etree.parse(filename_or_stream, parser)
         self.nodes = nodes
         self.ways = ways
         # count times each node is used
