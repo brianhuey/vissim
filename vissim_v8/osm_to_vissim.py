@@ -3,9 +3,23 @@
 from vissim_objs import Vissim
 import networkx as nx
 from osm_to_graph import read_osm
+from osm_to_graph import BusStopNode
 from collections import OrderedDict
 import geo_math as geo
 import math
+import vissim_v8 as vissim
+import matplotlib.pyplot as plt
+import numpy as np
+import sys
+import pickle
+
+
+#my added
+osmFile = "map.osm"
+
+highway_cat = 'motorway|trunk|primary|secondary|tertiary|road|residential|service|motorway_link|trunk_link|primary_link|secondary_link|teriary_ilnk'
+
+
 
 
 def stringify(iterable):
@@ -14,11 +28,22 @@ def stringify(iterable):
         Output: tuple with strings as values
     """
     return tuple([str(i) for i in iterable])
-
-
+                                                                                
+                                                                                
+ 
 class OSM(Vissim):
-    def __init__(self, osmFile):
-        self.G = read_osm(osmFile)
+    def __init__(self, osmFile ):
+
+        self.includeBusStops = '--include-bus-stops' in sys.argv  #RV
+        self.G, self.osm = read_osm(osmFile)
+	#RV
+	c = 0
+    	for n in self.osm.nodes:
+		if (type(self.osm.nodes[n]) is BusStopNode):
+			c += 1
+		pass
+	pass
+	print "Number of bs nodes is %d" %(c)
         self.v = Vissim()
         self.roadTypes = ['motorway', 'motorway_link', 'primary', 'secondary',
                           'tertiary', 'traffic_signals', 'bus_stop']
@@ -26,8 +51,33 @@ class OSM(Vissim):
         self.refX, self.refY = self.latLngToMeters(self.refLat, self.refLng)
         self.intersections = self.createIntersectionDict()
         self.ways = self.createWaysDict()
-        self.xy = self.createXYDict()
+	if ( "--loadXYDict" not in sys.argv):
+        	self.xy = self.createXYDict()
+		fh = open('xydict.pickle','wb')
+		pickle.dump(self.xy,open('xydict.pickle','wb'))
+		fh.close()
+	else:
+		self.xy = pickle.load(open('xydict.pickle','r'))
+
+	#RV 
+	self.importLinks()
+        if ( self.includeBusStops == True):
+		self.processBusStops()
+	self.importConnectors()
+        
+        
         self.v.createReference(self.refX, self.refY)
+        self.v.export("testxml.inpx")
+
+        
+        
+        '''
+        plt.ylim(-1.0, 1.0);
+        x = np.linspace(0, 10, 1000)
+        plt.plot(x, 2*np.sin(x*5));
+        plt.show()        
+        '''
+
 
     # Create reference point
     def getRefLatLng(self):
@@ -173,6 +223,7 @@ class OSM(Vissim):
         intersections = {}
         for fromN, toN in nx.edge_dfs(self.G):
             if self.isIntersection(toN):
+		print 'Processing intersection %d' %(int(toN))
                 intersections[toN] = self.getIntersection(toN)
         return intersections
 
@@ -323,12 +374,16 @@ class OSM(Vissim):
         nodes = []
         prevAttr = None
         currAttr = None
+        
         for fromN, toN in nx.edge_dfs(self.G):
             currAttr = self.G.edge[fromN][toN]
+            print 'createWaysDict : fromN %s toN %s ' %(fromN,toN)
+            #print currAttr['highway']
             if currAttr['highway'] not in self.roadTypes:
                 continue
             if self.isIntersection(fromN):
                 ways.append(nodes)
+#                print ways
                 waysDict.update(self.getWay(ways))
                 ways = []
                 nodes = []
@@ -368,6 +423,122 @@ class OSM(Vissim):
         else:
             raise KeyError
 
+    '''
+	RV Encodes the link id for vissim based on wayID used in this script
+	Input : wayID e.g typical syntax : '175878996-2' 
+	Output : link ID in vissim syntax  e.g.  u'17587899602'
+    '''
+    def wayIDToVissimLinkNumber(self,wayID):
+	    tmp = wayID
+	    tmp2 = tmp.replace('-','0',1)
+	    tmp3 = tmp2.split('-')
+	    return(tmp3[0])
+
+    '''
+	RV Encodes wayID used in this script from the vissim link id
+	Input : link ID in vissim syntax  e.g.  u'17587899602'
+	Output : wayID e.g typical syntax : e.g typical syntax : '175878996-2' 
+    '''
+    def vissimLinkNumberToWayID(self,vlinkID):
+	#todo
+        pass
+
+
+    '''
+	RV Returns all the way ids with the specified name
+    '''
+    def getWayByName(self, name):
+	wByN = []
+	for w in self.ways:
+		#print self.ways[w]['attr']['name']
+		try:
+		   if( self.ways[w]['attr']['name'] == name):
+			wByN.append( w )
+		except:
+			#print 'Warning : way %s has no name' %(w)
+			wByN.append( w )
+			continue;
+		pass
+	pass
+	return wByN
+    pass
+
+    '''
+	RV Gets the way nearest to the given lat,lon
+    '''
+    def getNearestLinks(self, btNum, wayList, latlon):
+	p1 = latlon
+        BusStopPoint3D = self.latLngToScaledMeters(p1[0], p1[1])
+	p2 = latlon
+	offset = 0.0
+	nw = wayList[0]
+	validLinksDict = {}
+	curr = []
+	validLinksDict[btNum] = curr
+	for w in wayList:
+	    print 'processing way %s with %d nodes ' %(w, len(self.ways[w]['nodes']))
+	    linkAttr = {}
+	    linkAttr['wayID'] = w
+	    OriginOfWayPoint3D = self.ways[w]['point3D'][0]
+	    EndOfWayPoint3D = self.ways[w]['point3D'][-1]
+	    linkAttr['linkLength'] = geo.getDistance(OriginOfWayPoint3D,EndOfWayPoint3D)
+	    # len should be at least 2
+	    tmpSegList = []
+	    for i in range(len(self.ways[w]['nodes'])-1 ):
+	        node1Point3D = self.ways[w]['point3D'][i]
+	    	node2Point3D = self.ways[w]['point3D'][i+1]
+	        nwl = geo.getDistance(node1Point3D,node2Point3D)
+	    	#print 'processing segment of way %s with len  %f ' %(w, nwl)
+	    
+	    	BSPointOnWay = geo.getNearestPointOnSegment(BusStopPoint3D, (node1Point3D, node2Point3D))
+	    	if (BSPointOnWay == None ):
+			#print '+++ Nearest point not on segment ; Skipping way %s' %(w)
+			continue;
+	    	pass
+		# else valid perp to Bus stop found on segment
+		newpd = geo.getDistance(BusStopPoint3D,BSPointOnWay)
+	    	linkAttr['PerpDistance'] = newpd
+	        linkAttr['BusStopPoint'] = BSPointOnWay
+	    	linkAttr['DistanceToOrigin'] = geo.getDistance(BusStopPoint3D,OriginOfWayPoint3D)
+	        linkAttr['DistanceToEnd'] = geo.getDistance(BusStopPoint3D,EndOfWayPoint3D)
+	        linkAttr['Offset'] = geo.getDistance(BSPointOnWay, OriginOfWayPoint3D) 
+		tmpSegList.append(linkAttr)
+	    pass
+	    if (len(tmpSegList) == 0):
+		continue;	
+	    
+	    vls = sorted(tmpSegList,key=lambda k:k['PerpDistance'])
+	    curr = validLinksDict[btNum]
+	    try:
+	    	curr.append ( vls[0])
+	    	validLinksDict[btNum] = curr 
+	    except:
+	    	print '*** Failed to add item to valid links Dictionary'
+	pass
+	return validLinksDict
+
+
+
+    '''
+	RV Gets the nearest link 
+	todo : add checks - link segment which can fit the bus stop in it
+    '''
+    def selectNearest(self, validLinks ):
+	#print 'Processing %d links ' %(len(validLinks))
+	if (len(validLinks) <=0 ):
+		print 'Empty list of links'
+		return None
+	pass
+	vls = sorted(validLinks,key=lambda k:k['PerpDistance'])
+	# add check here - perpDistance should not be more than 10m >
+
+	linkAttr = vls[0]
+	newd1 = linkAttr['DistanceToOrigin'] 
+	if ( (newd1 + 20.0) > linkAttr['linkLength']): # since cannot accomodate start of busstop ?
+		print '+++Warning : may need to skip  link %s ; since too short?' %(linkAttr['wayID'])
+    	return linkAttr
+    pass
+
     def calcTurn(self, startBearing, endBearing):
         thruMin, thruMax = 135, -135
         leftMin, leftMax = -135, -45
@@ -391,6 +562,12 @@ class OSM(Vissim):
             Output: Dict of wayIDs and turn movements
         """
         turns = {'left': [], 'right': [], 'through': []}
+	try:
+		way1 = self.getWayByNode(fromN,intN)
+        	way1Attr = self.ways[way1]
+                way1TurnLanes = self.getTurnLanes(way1Attr)
+	except:
+		way1Turns = {}
         if intN in self.intersections:
             intersection = self.intersections[intN]
             startBearing = intersection[fromN]['bearing']
@@ -398,8 +575,24 @@ class OSM(Vissim):
                 endBearing = attr['bearing']
                 try:
                     wayID = self.getWayByNode(intN, n)
+        	    wayIDAttr = self.ways[wayID]
+                    wayIDTurnLanes = self.getTurnLanes(wayIDAttr)
+
                     turn = self.calcTurn(startBearing, endBearing)
                     turns[turn].append(wayID)
+		    #RV 
+		    # handle case where wayID is a little piece of the same
+		    # way as way1 but should have been ideally fused into one
+		    # way
+		    # if wayID is having a right turn, add that id also.
+		    # if wayID is having a left turn, add that id also.
+		    if (turn == 'through'):
+		    	if self.hasTurn(wayIDTurnLanes, 'right') and self.hasTurn(way1TurnLanes,'right'):
+				turns['right'].append(wayID)
+		    	if self.hasTurn(wayIDTurnLanes, 'left') and self.hasTurn(way1TurnLanes,'left'):
+				turns['left'].append(wayID)
+		    
+
                 except:
                     continue
         else:
@@ -495,6 +688,13 @@ class OSM(Vissim):
         y = y * extent / 180.0
         return x, y
 
+    def latLngToScaledMeters(self, lat, lng):
+        x, y = self.latLngToMeters(lat, lng)
+        scale = 1 / math.cos(math.radians(self.refLat))
+        scaleX = (x - self.refX) / scale
+        scaleY = (y - self.refY) / scale
+        return (scaleX, scaleY, 0)
+
     def getLatLng(self, n):
         """ Return lat/lng tuple for a given node.
         """
@@ -510,7 +710,7 @@ class OSM(Vissim):
         scale = 1 / math.cos(math.radians(self.refLat))
         scaleX = (x - self.refX) / scale
         scaleY = (y - self.refY) / scale
-        return (scaleX, scaleY, '0')
+        return (scaleX, scaleY, 0)
 
     def nodesToXY(self, attr):
         """ Process links dictionary to calculate proper XY coordinates.
@@ -519,11 +719,24 @@ class OSM(Vissim):
         """
         width = self.v.defaultWidth
         nodes = attr['nodes']
+        #print "#######", nodes		
         point3D = attr['point3D'] = [self.nodeToScaledMeters(n) for n in nodes]
+        #print point3D  		
+        		
         # Parallel
         if not self.isOneway(attr):
             dist = attr['offset'] * width
-            point3D = geo.offsetParallel(point3D, dist)
+            #print "###", point3D			
+            #print nodes
+            #tt = geo.offsetEndpoint(point3D, 1.0)
+            #print tt
+            #print "@@@", point3D
+            '''tt = [[468.514244231,48.6922583583,0],
+                  [468.069585906,89.8343879775,0],
+                  [476.929403034,136.402838403,0]]
+			'''	  
+            point3D = geo.offsetParallel(point3D, dist)			
+            #point3D = geo.offsetParallel(point3D, dist)
         # Endpoints / Turns
         if nodes[0] in self.intersections:
             dist = self.getCrossStreets(nodes[0], nodes[1]) * width
@@ -542,7 +755,14 @@ class OSM(Vissim):
         """
         xy = {}
         for k, attr in self.ways.items():
-            xy[k] = self.nodesToXY(attr)
+            #print self.ways		
+	    #RV extract the relevant parts of the way id without the -B/-F encoding
+	    tmp = k
+	    if (k.endswith('-B') or k.endswith('-F')):
+	    	tmp3 = tmp.split('-')
+	    	tmp = tmp3[0] + '-' + tmp3[1]
+            print 'XY>>  Way being processed %s ' %(tmp)
+            xy[tmp] = self.nodesToXY(attr)
         return xy
 
     # Create VISSM objects from OSM
@@ -555,8 +775,15 @@ class OSM(Vissim):
         for wayID, attr in self.xy.items():
             point3D = attr['point3D']
             lanes = int(attr['laneNumber']) * [self.v.defaultWidth]
-            self.v.Links.createLink(**{'point3D': point3D, 'lane': lanes,
-                                       'name': wayID})
+	    tmp = self.wayIDToVissimLinkNumber(wayID)
+	    try:
+            	self.v.Links.createLink(**{'point3D': point3D, 'lane': lanes,
+                                       'no': tmp})
+	    except:
+		print 'Could not create link for %s' %(tmp)
+		continue
+	pass
+    pass
 
     def hasTurn(self, turnLanes, turn):
         """ Check if a turning movement exists at an approach.
@@ -575,13 +802,26 @@ class OSM(Vissim):
         fromLane = min([i+1 if turn in v else '' for i, v in
                         enumerate(reversed(turnLanes))])
         for wayID in turnTo[turn]:
-            toLink = self.v.Links._getAttributes('name', wayID)['no']
-            lanes = len(self.v.Links.getLanes(toLink))
+	    #RV
+	    tmp = self.wayIDToVissimLinkNumber(wayID)
+	    print 'Processing wayid old %s new %s' %(wayID, tmp)
+	    try:
+            	attr = self.v.Links._getAttributes('no', tmp)
+                toLink = self.v.Links._getAttributes('no', tmp)['no']
+                lanes = len(self.v.Links.getLanes(toLink))
+	    except:
+		print ' Attribute/lanes not found for way %s' %(tmp)
+		continue
+	    pass
             if lanes < turns:
                 turns = lanes
             toLane = lanes - turns + 1
-            self.v.Links.createConnector(fromLink, fromLane, toLink, toLane,
-                                         turns)
+	    try:
+            	self.v.Links.createConnector(fromLink, fromLane, toLink, toLane, turns)
+	    except:
+		print ' creat connector failed ' 
+		continue
+	    pass
 
     def importConnectors(self):
         """ Create connectors based on xy dictionary.
@@ -594,7 +834,15 @@ class OSM(Vissim):
                     direction = 'backward'
                 else:
                     direction = 'forward'
-                fromLink = self.v.Links._getAttributes('name', wayID)['no']
+	    	#RV
+	    	tmp = self.wayIDToVissimLinkNumber(wayID)
+		print 'Processing wayid %s' %(tmp)
+		try:
+                	fromLink = self.v.Links._getAttributes('no', tmp)['no']
+		except:
+			print 'Discarding wayID %s' %(tmp)
+			continue
+		pass
                 turnTo = attr['turns']
                 turnLanes = self.getTurnLanes(attr, direction=direction)
                 if len(turnTo['left']) > 0 and self.hasTurn(turnLanes, 'left'):
@@ -606,3 +854,76 @@ class OSM(Vissim):
                         self.hasTurn(turnLanes, 'right')):
                     self.processTurns(fromLink, turnTo, turnLanes, 'right')
 
+        
+    def processBusStops(self):
+	ptStops = []
+    	for n in self.osm.nodes:
+		if (type(self.osm.nodes[n]) is BusStopNode):
+			try:
+			    locName = self.osm.nodes[n].tags['location']
+			except:
+			    locName = ''
+			try:
+			    btNum = int(self.osm.nodes[n].tags['asset_ref'])
+			except:
+			    continue ; # skip bus stop without a bt number
+			print 'NonWayNode found of type %s <%d> is at location %s' %(self.osm.nodes[n].typeTag, btNum, locName)
+			wayList = []
+			lat = self.osm.nodes[n].lat
+			lon = self.osm.nodes[n].lon
+			wayList = self.getWayByName(locName)
+			if (len(wayList) != 0) :
+				nearestLinks = self.getNearestLinks(btNum, wayList, (self.osm.nodes[n].lat, self.osm.nodes[n].lon))
+				if (len(nearestLinks[btNum]) ==0 ):
+				    continue
+				nearestWay = self.selectNearest(nearestLinks[btNum])
+				if (nearestWay == None):
+					print 'No links for bus stop %d ' %(btNum)
+					continue;
+				pass
+				print 'Nearest Way is %s <len %f> at distance %f m from BusStop' %(nearestWay['wayID'], nearestWay['linkLength'],nearestWay['PerpDistance'])
+				#print 'Offset of bus-stop to start of link is %f meters' %(nearestWay['DistanceToOrigin'])
+				pts = self.InitPTStop(btNum,nearestWay)
+            			ptStops.append(pts)
+			else:
+				print 'No ways with name %s ' %(locName)
+			pass
+		pass
+	pass
+
+	print 'Processed Bus stops -- count = %d' %(len(ptStops))
+        for i in range(len(ptStops)):
+	    print ptStops[i]
+            self.v.PTStop.createptStop(**ptStops[i])
+	pass
+
+	#RV --2018--Jan--
+    pass
+
+    def InitPTStop(self,btNum, wayInfo):
+
+	ptStopRecord = {}
+	ptStopRecord['no'] = btNum
+	if (wayInfo['linkLength'] < 20):
+    	    print ' Bus stop on v. short way'
+	    ptStopRecord['length'] = wayInfo['linkLength'] 
+	pass
+	offset = wayInfo['DistanceToOrigin']
+	if ((offset + 20) >= wayInfo['linkLength']):
+		print ' Adjusting offset for Bus stop '
+		offset = offset - 20.0;
+		if (offset < 0.0): #RV No negative offsets
+			offset = 0.0
+	pass
+	ptStopRecord['pos'] = offset 
+	#RV : fix the lane number
+	lanes = int(self.ways[wayInfo['wayID']]['laneNumber'])
+	tmp = self.wayIDToVissimLinkNumber(wayInfo['wayID'])
+	ptStopRecord['lane'] = tmp + ' ' + str(lanes)
+	return ptStopRecord
+
+#my added
+if __name__ == '__main__':
+	o=OSM(osmFile)
+
+#o = OSM(osmFile)
