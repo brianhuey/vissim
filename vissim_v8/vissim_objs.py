@@ -24,7 +24,9 @@ class Vissim(object):
             self.data = self._load(filename)
         self.params = None
         self._getParams()
+        #print self._getParams()
         self.Links = Links(self.data, self.params)
+        self.PTStop = PTStop(self.data, self.params)
         self.Inputs = Inputs(self.data, self.params)
         self.StaticRouting = StaticRouting(self.data, self.params)
         self.defaultWidth = 3.6
@@ -53,7 +55,7 @@ class Vissim(object):
                   'powerDistribution', 'timeDistribution', 'vehicleClass',
                   'vehicleComposition', 'vehicleInput',
                   'vehicleRoutingDecisionStatic', 'vehicleType',
-                  'walkingBehavior', 'weightDistribution']
+                  'walkingBehavior', 'weightDistribution', 'ptStop']
         paramDict = {}
         for key in params:
             if key == 'maxDeceleration' or key == 'maxAcceleration':
@@ -98,21 +100,22 @@ class Vissim(object):
             raise KeyError('%s not a valid attribute' % (attr))
         xpath = (str(self.path) + '[@' + str(attr) + '="' + str(value) + '"]' +
                  str(child))
+	#print ' xpath is %s' %(xpath)
         data = self.data.xpath(xpath)
-        if len(data) > 1:
-            raise KeyError('Number of elements > 1')
-        elif len(data) == 0:
+        if len(data) == 0:
             raise KeyError('Key does not exist')
-        else:
-            attribs = data[0].attrib
-            if duplicate:
-                attribs = deepcopy(attribs)
-            if 'lane' in attribs:
-                lane = self._laneParse(attribs['lane'])
-                attribs.pop('lane')
-                return dict(attribs, **lane)
-            else:
-                return attribs
+        if len(data) > 1:
+            print 'KeyError(Number of elements > 1)'
+            #else: 
+	attribs = data[0].attrib
+	if duplicate:
+	    attribs = deepcopy(attribs)
+	if 'lane' in attribs:
+	    lane = self._laneParse(attribs['lane'])
+	    attribs.pop('lane')
+	    return dict(attribs, **lane)
+	else:
+	    return attribs
 
     def _getChildren(self, attr, value, children, duplicate=True):
         """ Uses XPath to return children of a Vissim object
@@ -125,7 +128,8 @@ class Vissim(object):
         xpath = (self.path + '[@' + str(attr) + '="' + str(value) + '"]' +
                  str(children))
         if len(self.data.xpath(xpath)) == 0:
-            raise KeyError('Key does not exist')
+	    err = 'Key %s does not exist' %(xpath)
+            raise KeyError(err)
         else:
             childList = [i.attrib for i in self.data.xpath(xpath)]
             if duplicate:
@@ -137,10 +141,12 @@ class Vissim(object):
         child = '' if children is None else children
         path = (self.path + '[@' + str(attr) + '="' + str(value) + '"]' +
                 str(child))
+	#print ' path is %s' %(path)
         data = self.data.xpath(path)
         setValue = str(setValue)
         if len(data) > 1:
-            raise KeyError('Number of elements > 1')
+            #raise KeyError('Number of elements > 1')
+            print 'KeyError(Number of elements > 1)'
         if setAttr == 'connectLink' and 'lane' in data[0].attrib.keys():
             attr = self._getAttributes(attr, value, children=children)
             connectLane = attr['connectLane']
@@ -162,9 +168,11 @@ class Vissim(object):
         child = '' if children is None else children
         path = (self.path + '[@' + str(attr) + '="' + str(value) + '"]' +
                 str(child))
+	#print ' path is %s' %(path)
         data = self.data.xpath(path)
         if len(data) > 1:
-            raise KeyError('Number of elements > 1')
+            #raise KeyError('Number of elements > 1')
+            print 'KeyError(Number of elements > 1)'
         elif len(data) == 0:
             raise KeyError('%s path generates zero elements' % (path))
         if elemAttr is None:
@@ -188,7 +196,7 @@ class Vissim(object):
     def _getNewNum(self, key):
         nums = self.params[key]
         if len(nums) == 0:
-            return 1
+            return str(1)
         else:
             return str(max(nums) + 1)
 
@@ -225,6 +233,36 @@ class Vissim(object):
                          attrib={'x': str(x), 'y': str(y)})
         etree.SubElement(self.data.xpath('./netPara')[0], 'refPointNet',
                          attrib={'x': '0', 'y': '0'})
+
+class PTStop(Vissim):
+    def __init__(self, data, params):
+        self.name = 'ptstop'
+        self.path = './ptStops/ptStop'
+        self.data = data
+        self.params = params
+        self.types={'anmid': int, 'lane': str, 'length': float, 'name': str, 'no': int, 'pos': float}
+
+    #Added by Cherry
+    def createptStop(self, **kwargs):
+        """ Create a new public transport stop in the model.
+            Input: ptStop number, ptStop attributes as dict
+            Output: Added <ptStop> element to <ptStops> element.
+        """
+        num = self._getNewNum('ptStop')
+        defaults = {'anmid': '99', 'lane': '99999 1', 'length': '10.9', 'name': '', 'no': num, 'pos': ''}
+        data = self.data
+        a = {k: str(kwargs.get(k, v)) for k, v in defaults.items()}
+        etree.SubElement(data.xpath('./ptStops')[0], 'ptStop', attrib=a)
+        self._getParams() #Note that there is no ptStop attribute in params list.
+        return self.getptStop(a['no'])
+
+    #Added by Cherry
+    def getptStop(self, ptStopNum):
+        """ Get attributes of ptStp.
+            Input: ptStop number
+            Output: Dict of ptStop attributes
+        """
+        return self._getAttributes('no', ptStopNum)
 
 
 class Links(Vissim):
@@ -349,6 +387,7 @@ class Links(Vissim):
             Input: link number
             Output: List of lane widths beginning with lane 1 (in meters)
         """
+	print 'Getting lanes for link %s' %(linkNum)
         return self._getChildren('no', linkNum, '/lanes/lane')
 
     def addLane(self, linkNum, lanes):
@@ -392,7 +431,9 @@ class Links(Vissim):
             Input: link number, link, point3D and lane attributes as dict
             Output: Added <link> element to <links> element.
         """
-        num = self._getNewNum('link')
+        #RV get a new num if this is really a new link
+	num = self._getNewNum('link')
+	#print 'link number max + 1 %s' %(num)
         defaults = {'assumSpeedOncom': '60.00000', 'costPerKm': '0.00000',
                     'direction': 'ALL',
                     'displayType': self._getDefaultNum('displayType'),
@@ -414,10 +455,15 @@ class Links(Vissim):
         etree.SubElement(data.xpath('./links')[0], 'link', attrib=a)
         self._setChild('no', a['no'], 'geometry', None)
         self._setChild('no', a['no'], 'points3D', None, '/geometry')
+	#print 'Adding geometry for %s' %(num)
         self.addGeometry(a['no'], kwargs.get('point3D',
                          [('0', '0', '0'), ('1', '1', '0')]))
-        self._setChild('no', a['no'], 'lanes', None)
-        self.addLane(a['no'], kwargs.get('lane', ['3.500000']))
+        laneCount =  kwargs.get('lane', ['3.500000'])
+	if (laneCount > 0):
+        	self._setChild('no', a['no'], 'lanes', None)
+        	self.addLane(a['no'], kwargs.get('lane', ['3.500000']))
+	else:
+		print "lane count is not a positive number" 
         self._getParams()
         return self.getLink(a['no'])
 

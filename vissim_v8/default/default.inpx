@@ -1023,6 +1023,7 @@
 		</locationDistribution>
 	</locationDistributions>
 	<links></links>
+	<ptStops></ptStops>
 	<maxAccelerationFunctions>
 		<maxAccelerationFunction name="Car" no="1">
 			<accelFuncDataPts>
