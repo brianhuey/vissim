@@ -1,14 +1,14 @@
-#VISSIM Tools
+# VISSIM Tools
 
-##VISSIM v8.x (/vissim_v8)
+## VISSIM v8.x (/vissim_v8)
 
-###Current VISSIM objects supported:
+### Current VISSIM objects supported:
 - VISSIM network attributes and parameters
 - Vehicle Inputs
 - Links
 - Static Route Decisions
 
-###Current methods supported:
+### Current methods supported:
 - Import data from .INPX file
 - Export data to .INPX file
 - Get object attributes
@@ -16,12 +16,12 @@
 - Create objects
 - Remove objects
 
-###Install:
+### Install:
 ``` python
 python setup_v8.py install
 ```
 
-###Usage:
+### Usage:
 ```python
 import vissim_v8 as vissim
 v = vissim.Vissim('vissim_v8/example/Busmall.inpx')
@@ -43,27 +43,27 @@ Export VISSIM model to new file:
 v.export('example_new.inpx')
 ```
 
-##VISSIM v5.x (/vissim_v5)
+## VISSIM v5.x (/vissim_v5)
 
-###Current VISSIM objects supported:
+### Current VISSIM objects supported:
 - Vehicle Inputs
 - Links
 - Connectors
 - Route Decisions
 
-###Current methods supported:
+### Current methods supported:
 - Import data from .INP file
 - Export data to .INP file
 - Get object attributes
 - Set object attributes 
 - Create objects
 
-###Install:
+### Install:
 ``` python
 python setup.py install
 ```
 
-###Usage:
+### Usage:
 ```python
 import vissim_v5 as vissim
 
