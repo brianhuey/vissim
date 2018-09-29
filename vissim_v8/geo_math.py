@@ -16,10 +16,11 @@ def offsetParallel(points, distance, clockwise=True):
         elif not clockwise:
             b[:, 0] = -norm[:, 1]
             b[:, 1] = norm[:, 0]
-        return b
+        return bs
     A = np.array(points)
     B = np.vstack([-A[1], A[0], A[1:-1]])
-    return np.array(perp(A-B, distance) + A, dtype='str')
+    C = np.vstack([-A[0], A[1:]])
+    return np.array(perp(C-B, distance, clockwise=clockwise) + A, dtype='str')
 
 
 def offsetEndpoint(points, distance, beginning=True):
